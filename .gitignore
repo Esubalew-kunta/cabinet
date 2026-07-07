@@ -1,0 +1,28 @@
+# Secrets — never commit
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Dependencies / build artifacts
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+**/out/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Vercel
+.vercel
+**/.vercel
+
+# Private meeting material (real names — not for the repo).
+# Remove these lines if you deliberately want them tracked.
+Meeting started*.docx
+meeting_transcript.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db

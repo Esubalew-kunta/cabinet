@@ -1,0 +1,240 @@
+▲ Next.js 16.2.10 (Turbopack)
+- Local:         http://localhost:3100
+- Network:       http://192.168.137.1:3100
+- Environments: .env.local
+✓ Ready in 1564ms
+⨯ Another next dev server is already running.
+
+- Local:        http://localhost:3003
+- PID:          20620
+- Dir:          C:\Users\Esubalew\Desktop\aimakers\tasks\dr.webapp\cockpit
+- Log:          .next\dev\logs\next-development.log
+
+Run taskkill /PID 20620 /F to stop it.
+[?25h
+▲ Next.js 16.2.10 (Turbopack)
+- Local:         http://localhost:3100
+- Network:       http://192.168.137.1:3100
+- Environments: .env.local
+✓ Ready in 2.3s
+
+○ Compiling /connexion ...
+ GET /connexion 200 in 16.2s (next.js: 15.0s, proxy.ts: 11ms, application-code: 1245ms)
+○ Compiling / ...
+ GET / 307 in 11.6s (next.js: 7.1s, proxy.ts: 697ms, application-code: 3.7s)
+○ Compiling /admin ...
+ GET /admin 200 in 11.7s (next.js: 8.7s, proxy.ts: 284ms, application-code: 2.7s)
+○ Compiling /secretariat ...
+ GET /secretariat 200 in 8.6s (next.js: 5.8s, proxy.ts: 202ms, application-code: 2.7s)
+ GET /patients 200 in 3.8s (next.js: 2.3s, proxy.ts: 194ms, application-code: 1272ms)
+ GET /taches 200 in 3.0s (next.js: 1355ms, proxy.ts: 191ms, application-code: 1441ms)
+ GET /finances 200 in 3.0s (next.js: 1483ms, proxy.ts: 196ms, application-code: 1316ms)
+ GET /admin/acces 200 in 2.8s (next.js: 1541ms, proxy.ts: 197ms, application-code: 1059ms)
+ GET / 307 in 3.1s (next.js: 176ms, proxy.ts: 1397ms, application-code: 1542ms)
+ GET /admin 200 in 3.1s (next.js: 116ms, proxy.ts: 220ms, application-code: 2.8s)
+[browser] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/admin" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <script>
+                      <RootLayout>
+                        <html
+                          lang="fr"
++                         className="geist_a71539c9-module__T19VSG__variable h-full antialiased"
+-                         className="geist_a71539c9-module__T19VSG__variable h-full antialiased brand-refresh"
+-                         data-scribe-recorder-ready="true"
+                        >
+                  ...
+ 
+ GET /secretariat 200 in 2.2s (next.js: 346ms, proxy.ts: 235ms, application-code: 1576ms)
+○ Compiling /medecin ...
+ GET /patients 200 in 1419ms (next.js: 24ms, proxy.ts: 226ms, application-code: 1169ms)
+ GET /medecin 200 in 16.8s (next.js: 14.3s, proxy.ts: 237ms, application-code: 2.3s)
+ GET /medecin 200 in 6.7s (next.js: 3.9s, proxy.ts: 194ms, application-code: 2.5s)
+ GET /medecin 200 in 2.3s (next.js: 19ms, proxy.ts: 546ms, application-code: 1763ms)
+ GET /medecin 200 in 2.8s (next.js: 39ms, proxy.ts: 346ms, application-code: 2.4s)
+ GET /taches 200 in 1404ms (next.js: 18ms, proxy.ts: 311ms, application-code: 1075ms)
+ GET /taches?filtre=toutes 200 in 2.2s (next.js: 51ms, proxy.ts: 206ms, application-code: 1896ms)
+ GET /taches?filtre=recurrentes 200 in 3.0s (next.js: 86ms, proxy.ts: 234ms, application-code: 2.7s)
+ GET /taches?filtre=terminees 200 in 4.1s (next.js: 31ms, proxy.ts: 324ms, application-code: 3.7s)
+ GET /taches?filtre=ouvertes&domaine=Clinique 200 in 4.4s (next.js: 172ms, proxy.ts: 533ms, application-code: 3.7s)
+ GET /taches?filtre=ouvertes&domaine=Professionnel 200 in 4.0s (next.js: 609ms, proxy.ts: 503ms, application-code: 2.8s)
+ GET /taches?filtre=ouvertes&domaine=Personnel 200 in 4.0s (next.js: 95ms, proxy.ts: 1219ms, application-code: 2.7s)
+ GET /taches?filtre=ouvertes&domaine=Projets 200 in 3.3s (next.js: 991ms, proxy.ts: 719ms, application-code: 1614ms)
+ GET /admin 200 in 1607ms (next.js: 33ms, proxy.ts: 219ms, application-code: 1354ms)
+ GET /admin/acces 200 in 1202ms (next.js: 19ms, proxy.ts: 196ms, application-code: 987ms)
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'a38357fc-b624-4a5c-a8d2-4f7cd5221fcc'
+}
+ PATCH /api/matrice 200 in 2.2s (next.js: 1348ms, proxy.ts: 213ms, application-code: 590ms)
+ PATCH /api/matrice 200 in 761ms (next.js: 10ms, proxy.ts: 190ms, application-code: 560ms)
+ PATCH /api/matrice 200 in 785ms (next.js: 8ms, proxy.ts: 192ms, application-code: 585ms)
+ PATCH /api/matrice 200 in 800ms (next.js: 42ms, proxy.ts: 203ms, application-code: 555ms)
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'd1978edd-d5b2-4715-b764-9f277d29e384'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'aadfbb63-abe3-47e4-a3d3-6ed92cbb16b4'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: '580b937b-6d68-4720-943a-4062abddfc74'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'cc262c33-68dc-4eee-9a7b-ca00e96d864c'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: '695ab2e7-b375-4ecc-857b-42adfd038e68'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'fb04432b-d21d-4617-bb22-6963c9d9f4b2'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'b5a74318-0580-452f-97ec-bafa724223e9'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: '24e1b84c-5071-448e-9e1c-b7efe0f8cde7'
+}
+@notionhq/client warn: request fail {
+  code: 'unauthorized',
+  message: 'API token is invalid.',
+  attempt: 0,
+  requestId: 'c30c3d7d-74ad-4a68-8788-caabdefbf60e'
+}
+ POST /api/sync 500 in 83s (next.js: 3.2s, proxy.ts: 214ms, application-code: 80s)
+ GET /admin/acces 200 in 1494ms (next.js: 18ms, proxy.ts: 274ms, application-code: 1202ms)
+ PATCH /api/matrice 200 in 1148ms (next.js: 12ms, proxy.ts: 485ms, application-code: 651ms)
+ PATCH /api/matrice 200 in 788ms (next.js: 8ms, proxy.ts: 191ms, application-code: 589ms)
+ PATCH /api/matrice 200 in 824ms (next.js: 22ms, proxy.ts: 194ms, application-code: 608ms)
+ PATCH /api/membres 200 in 4.4s (next.js: 3.0s, proxy.ts: 234ms, application-code: 1190ms)
+ PATCH /api/membres 200 in 2.9s (next.js: 1761ms, proxy.ts: 200ms, application-code: 891ms)
+ GET /connexion?suivant=%2Fadmin%2Facces 200 in 7.4s (next.js: 5.4s, proxy.ts: 217ms, application-code: 1726ms)
+ GET /connexion?suivant=%2Fadmin%2Facces 200 in 658ms (next.js: 34ms, proxy.ts: 390ms, application-code: 233ms)
+ GET /connexion?suivant=%2Fadmin%2Facces 200 in 2.8s (next.js: 83ms, proxy.ts: 17ms, application-code: 2.7s)
+ GET /connexion?suivant=%2Fadmin%2Facces 200 in 2.2s (next.js: 65ms, proxy.ts: 119ms, application-code: 2.0s)
+[browser] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/connexion" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <script>
+                      <RootLayout>
+                        <html
+                          lang="fr"
+                          className="geist_a71539c9-module__T19VSG__variable h-full antialiased"
+-                         data-scribe-recorder-ready="true"
+                        >
+                  ...
+ 
+✓ Finished writing to filesystem cache in 13.6s
+ GET /connexion?suivant=%2Fadmin%2Facces 200 in 982ms (next.js: 46ms, proxy.ts: 35ms, application-code: 902ms)
+[browser] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/connexion" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <script>
+                      <RootLayout>
+                        <html
+                          lang="fr"
+                          className="geist_a71539c9-module__T19VSG__variable h-full antialiased"
+-                         data-scribe-recorder-ready="true"
+                        >
+                  ...
+ 
+  Reload env: .env.local
+ GET /connexion?suivant=%2Fadmin%2Facces 200 in 1847ms (next.js: 629ms, proxy.ts: 738ms, application-code: 480ms)
+[?25h
