@@ -26,3 +26,4 @@ meeting_transcript.txt
 # OS / editor
 .DS_Store
 Thumbs.db
+.gstack/

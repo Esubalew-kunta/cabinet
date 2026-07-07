@@ -64,6 +64,11 @@ const fr = {
     badCredentials: "Email ou mot de passe incorrect.",
     inactive: "Ce compte est désactivé. Contactez l'administrateur.",
     noAccount: "Pas de compte ? Demandez un accès à l'administrateur.",
+    demoTitle: "Comptes de démonstration",
+    demoHint: "Cliquez pour remplir les identifiants.",
+    roleAdmin: "Administration",
+    roleDoctor: "Médecin",
+    roleSecretary: "Secrétariat",
   },
   sync: {
     lastSync: "Dernière synchronisation Notion :",
@@ -403,6 +408,11 @@ const en: DeepShape<typeof fr> = {
     badCredentials: "Incorrect email or password.",
     inactive: "This account is disabled. Contact the administrator.",
     noAccount: "No account? Ask the administrator for access.",
+    demoTitle: "Demo accounts",
+    demoHint: "Click to fill the credentials.",
+    roleAdmin: "Administration",
+    roleDoctor: "Doctor",
+    roleSecretary: "Front desk",
   },
   sync: {
     lastSync: "Last Notion sync:",
