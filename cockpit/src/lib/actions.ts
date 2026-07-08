@@ -594,6 +594,51 @@ export async function appareilRendu(examenId: string): Promise<ActionResult> {
   }
 }
 
+/**
+ * Ajoute une unité au parc (nouvel appareil physique acheté). Réf = "{Type} n°{Numéro}".
+ * L'unité démarre « Au cabinet », libre.
+ */
+export async function creerAppareil(input: {
+  type: string;
+  numero?: string | null;
+  date_achat?: string | null;
+  notes?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
+    if (!input.type) return { ok: false, error: "Type requis" };
+
+    const num = (input.numero ?? "").trim();
+    const ref = num ? `${input.type} n°${num}` : input.type;
+
+    const props: Record<string, any> = {
+      "Réf": P.title(ref),
+      Type: P.select(input.type),
+      "État": P.select("Au cabinet"),
+    };
+    if (num) props["Numéro"] = P.text(num);
+    if (input.date_achat) props["Date d'achat"] = P.date(input.date_achat);
+    if (input.notes) props["Notes"] = P.text(input.notes);
+
+    const pageId = await notionCreate("appareils", props);
+    await supabaseAdmin().from("appareils").insert({
+      notion_id: pageId,
+      ref_appareil: ref,
+      type: input.type,
+      numero: num || null,
+      etat: "Au cabinet",
+      date_achat: input.date_achat ?? null,
+      notes: input.notes ?? null,
+      created_time: new Date().toISOString(),
+    });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** État manuel d'une unité (Maintenance / Perdu / Réformé / Au cabinet). */
 export async function setEtatAppareil(appareilId: string, etat: string): Promise<ActionResult> {
   try {

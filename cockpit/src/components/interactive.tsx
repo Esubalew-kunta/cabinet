@@ -48,6 +48,7 @@ import {
   setLienCR,
   setOrdonnanceRemise,
   creerExamen,
+  creerAppareil,
   setEtatAppareil,
   setCAT,
   majAppareillage,
@@ -1020,6 +1021,66 @@ export function NouvelExamenButton({
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
             <Button type="submit" loading={pending}>{tr.examens.createExam}</Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+export function NouvelAppareilButton() {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { tr } = useTr();
+  const [type, setType] = useState<string>(TYPES_APPAREIL[0]);
+  const [numero, setNumero] = useState("");
+  const [dateAchat, setDateAchat] = useState("");
+  const [notes, setNotes] = useState("");
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    run(
+      () => creerAppareil({ type, numero: numero || null, date_achat: dateAchat || null, notes: notes || null }),
+      () => {
+        setOpen(false);
+        setNumero(""); setDateAchat(""); setNotes("");
+      },
+      tr.toast.deviceAdded
+    );
+  }
+
+  const previewRef = numero.trim() ? `${type} n°${numero.trim()}` : type;
+
+  return (
+    <>
+      <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
+        <Plus className="size-3.5" /> {tr.appareils.newDevice}
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={tr.appareils.newDevice} icon={<Watch />}>
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.common.type}>
+              <Select value={type} onChange={(e) => setType(e.target.value)}>
+                {TYPES_APPAREIL.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={tr.appareils.deviceNumber} hint={tr.appareils.deviceNumberHint}>
+              <Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="6" />
+            </Field>
+            <Field label={tr.appareils.purchaseDate}>
+              <Input type="date" value={dateAchat} onChange={(e) => setDateAchat(e.target.value)} />
+            </Field>
+            <Field label={tr.appareils.deviceNotes}>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={tr.appareils.serialPlaceholder} />
+            </Field>
+          </div>
+          <p className="text-xs text-muted">{tr.appareils.refPreview} <span className="font-medium text-foreground">{previewRef}</span></p>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button type="submit" loading={pending}>{tr.appareils.createDevice}</Button>
           </div>
         </form>
       </Dialog>

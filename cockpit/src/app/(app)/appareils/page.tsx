@@ -9,7 +9,7 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/badge";
 import { ETAT_APPAREIL_UNITE, TYPES_APPAREIL } from "@/lib/labels";
 import { formatDate, EMPTY } from "@/lib/utils";
-import { EtatAppareilSelect } from "@/components/interactive";
+import { EtatAppareilSelect, NouvelAppareilButton } from "@/components/interactive";
 import { Watch } from "lucide-react";
 import type { Appareil, Examen } from "@/lib/types";
 
@@ -48,7 +48,12 @@ export default async function AppareilsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader icon={<Watch />} title={tr.appareils.title} subtitle={tr.appareils.subtitle} />
+      <PageHeader
+        icon={<Watch />}
+        title={tr.appareils.title}
+        subtitle={tr.appareils.subtitle}
+        actions={<NouvelAppareilButton />}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {types.map((t) => {
