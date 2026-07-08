@@ -52,7 +52,7 @@ export default async function AdminPage() {
   const supa = await supabaseServer();
   const personnelMap = await getPersonnelMap();
 
-  const [patients, dossiers, examens, paiements, taches, syncRuns, rapports, parametres] = await Promise.all([
+  const [patients, dossiers, examens, paiements, taches, syncRuns, rapports, parametres, stock] = await Promise.all([
     supa.from("patients").select("notion_id, statut, probleme_principal").then((r) => r.data ?? []),
     supa.from("dossiers").select("notion_id, statut_intake").then((r) => r.data ?? []),
     supa.from("examens").select("notion_id, statut_appareil").then((r) => r.data ?? []),
@@ -61,8 +61,10 @@ export default async function AdminPage() {
     supa.from("sync_runs").select("*").order("started_at", { ascending: false }).limit(5).then((r) => (r.data ?? []) as SyncRun[]),
     supa.from("rapports").select("*").order("date_rapport", { ascending: false }).limit(6).then((r) => (r.data ?? []) as Rapport[]),
     supa.from("parametres").select("notion_id, parametre, valeur, description").order("parametre").then((r) => (r.data ?? []) as Parametre[]),
+    supa.from("stock").select("quantite, seuil_minimum").then((r) => (r.data ?? []) as { quantite: number | null; seuil_minimum: number | null }[]),
   ]);
   const isAdmin = session.member.is_owner || session.member.role === "admin";
+  const stockBas = stock.filter((s) => Number(s.quantite ?? 0) <= Number(s.seuil_minimum ?? 0)).length;
 
   const patientsActifs = patients.filter((p) => p.statut === "Actif").length;
   const dossiersEnAttente = dossiers.filter((d) => !["Terminé"].includes(d.statut_intake ?? "")).length;
@@ -91,10 +93,11 @@ export default async function AdminPage() {
 
       <SyncBanner lastRun={syncRuns[0] ?? null} />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label={tr.admin.activePatients} value={patientsActifs} />
         <StatCard label={tr.admin.pendingDossiers} value={dossiersEnAttente} tone={dossiersEnAttente > 0 ? "warning" : "default"} />
         <StatCard label={tr.admin.overdueDevices} value={appareilsEnRetard} tone={appareilsEnRetard > 0 ? "danger" : "success"} />
+        <StatCard label={tr.admin.lowStock} value={stockBas} tone={stockBas > 0 ? "warning" : "success"} />
         <StatCard label={tr.admin.totalCollected} value={formatEuro(totalEncaisse, lang)} tone="success" />
       </div>
 

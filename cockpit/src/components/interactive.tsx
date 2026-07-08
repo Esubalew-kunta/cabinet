@@ -23,11 +23,13 @@ import {
   ETAT_APPAREIL_UNITE,
   CAT_EXAMEN,
   STATUT_CR,
+  CATEGORIES_STOCK,
+  UNITES_STOCK,
 } from "@/lib/labels";
 import { RECURRENCE, tv } from "@/lib/i18n/dict";
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
-import { Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, Link2, Microscope, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Package, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
 import {
   verifierDossier,
   setStatutIntake,
@@ -56,9 +58,12 @@ import {
   majAppareillage,
   facturerPenalite,
   creerPerfusion,
+  creerArticle,
+  mouvementStock,
+  setSeuilArticle,
   setParametre,
 } from "@/lib/actions";
-import type { Appareil, Examen } from "@/lib/types";
+import type { Appareil, Article, Examen, Mouvement } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -1447,6 +1452,217 @@ export function ModifierPatientButton({
             <Button type="submit" loading={pending}>{tr.common.save}</Button>
           </div>
         </form>
+      </Dialog>
+    </>
+  );
+}
+
+/* ---------- Inventaire (consommables) ---------- */
+
+export function NouvelArticleButton() {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { lang, tr } = useTr();
+  const [article, setArticle] = useState("");
+  const [categorie, setCategorie] = useState<string>(CATEGORIES_STOCK[0]);
+  const [quantite, setQuantite] = useState("");
+  const [unite, setUnite] = useState<string>(UNITES_STOCK[0]);
+  const [seuil, setSeuil] = useState("");
+  const [fournisseur, setFournisseur] = useState("");
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    run(
+      () =>
+        creerArticle({
+          article,
+          categorie,
+          quantite: quantite ? Number(quantite) : 0,
+          unite,
+          seuil_minimum: seuil ? Number(seuil) : 0,
+          fournisseur: fournisseur || null,
+        }),
+      () => {
+        setOpen(false);
+        setArticle(""); setQuantite(""); setSeuil(""); setFournisseur("");
+      },
+      tr.toast.articleCreated
+    );
+  }
+
+  return (
+    <>
+      <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
+        <Plus className="size-3.5" /> {tr.inventaire.newArticle}
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={tr.inventaire.newArticle} icon={<Package />}>
+        <form onSubmit={submit} className="space-y-3">
+          <Field label={tr.inventaire.articleName}>
+            <Input value={article} onChange={(e) => setArticle(e.target.value)} required autoFocus placeholder={tr.inventaire.articlePlaceholder} />
+          </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.inventaire.colCategory}>
+              <Select value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+                {CATEGORIES_STOCK.map((c) => (
+                  <option key={c} value={c}>{tv(lang, c)}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={tr.inventaire.colUnit}>
+              <Select value={unite} onChange={(e) => setUnite(e.target.value)}>
+                {UNITES_STOCK.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={tr.inventaire.initialQty}>
+              <Input type="number" min="0" step="1" value={quantite} onChange={(e) => setQuantite(e.target.value)} placeholder="0" />
+            </Field>
+            <Field label={tr.inventaire.thresholdLabel} hint={tr.inventaire.thresholdHint}>
+              <Input type="number" min="0" step="1" value={seuil} onChange={(e) => setSeuil(e.target.value)} placeholder="0" />
+            </Field>
+          </div>
+          <Field label={tr.inventaire.supplierLabel}>
+            <Input value={fournisseur} onChange={(e) => setFournisseur(e.target.value)} placeholder="Ex. Air+, Medline…" />
+          </Field>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button type="submit" loading={pending}>{tr.inventaire.createArticle}</Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+/** Entrée (réappro) ou Sortie (utilisation) : écrit le journal + la quantité. */
+export function MouvementStockButton({
+  article,
+  sens,
+}: {
+  article: Pick<Article, "notion_id" | "article" | "quantite">;
+  sens: "Entrée" | "Sortie";
+}) {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { tr } = useTr();
+  const [qte, setQte] = useState("");
+  const [motif, setMotif] = useState("");
+  const isIn = sens === "Entrée";
+  const current = Number(article.quantite ?? 0);
+  const q = Number(qte || 0);
+  const next = isIn ? current + q : current - q;
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    run(
+      () => mouvementStock(article.notion_id, { sens, quantite: q, motif: motif || null }),
+      () => {
+        setOpen(false);
+        setQte(""); setMotif("");
+      },
+      tr.toast.stockMoved
+    );
+  }
+
+  return (
+    <>
+      <Button size="sm" variant={isIn ? "secondary" : "ghost"} onClick={() => { setError(null); setOpen(true); }}>
+        {isIn ? <ArrowDownToLine className="size-3.5" /> : <ArrowUpFromLine className="size-3.5" />}
+        {isIn ? tr.inventaire.restock : tr.inventaire.usage}
+      </Button>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`${isIn ? tr.inventaire.restockTitle : tr.inventaire.usageTitle} — ${article.article}`}
+        icon={isIn ? <ArrowDownToLine /> : <ArrowUpFromLine />}
+      >
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.inventaire.qtyLabel}>
+              <Input type="number" min="1" step="1" value={qte} onChange={(e) => setQte(e.target.value)} required autoFocus />
+            </Field>
+            <Field label={tr.inventaire.reasonLabel}>
+              <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder={tr.inventaire.reasonPlaceholder} />
+            </Field>
+          </div>
+          <p className={`text-xs ${next < 0 ? "font-medium text-danger" : "text-muted"}`}>
+            {next < 0 ? tr.inventaire.notEnough : tr.inventaire.afterMove(next)}
+          </p>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button type="submit" loading={pending} disabled={!q || next < 0}>{tr.inventaire.saveMove}</Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+/** Seuil minimum inline : input + bouton Enregistrer quand modifié. */
+export function SeuilArticle({ articleId, seuil }: { articleId: string; seuil: number | null }) {
+  const { pending, error, run } = useAction();
+  const { tr } = useTr();
+  const [v, setV] = useState(String(seuil ?? 0));
+  const dirty = v !== String(seuil ?? 0);
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input className="h-7 w-16 text-xs tabular-nums" type="number" min="0" step="1" value={v} onChange={(e) => setV(e.target.value)} />
+      {dirty && (
+        <Button size="sm" variant="secondary" loading={pending} onClick={() => run(() => setSeuilArticle(articleId, Number(v || 0)), undefined, tr.toast.thresholdSaved)}>
+          <Check className="size-3.5" />
+        </Button>
+      )}
+      <ErrorText error={error} />
+    </div>
+  );
+}
+
+/** Historique des mouvements d'un article (journal auditable). */
+export function HistoriqueArticleButton({
+  article,
+  mouvements,
+  personnel,
+}: {
+  article: Pick<Article, "notion_id" | "article" | "unite">;
+  mouvements: Mouvement[];
+  personnel: { notion_id: string; nom: string | null }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const { lang, tr } = useTr();
+  const nomDe = (ids: string[]) => {
+    const id = ids?.[0];
+    return id ? personnel.find((p) => p.notion_id === id)?.nom ?? "?" : "·";
+  };
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title={tr.inventaire.historyTitle}
+        aria-label={tr.inventaire.historyTitle}
+        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-background hover:text-foreground"
+      >
+        <History className="size-4" />
+      </button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={`${tr.inventaire.historyTitle} — ${article.article}`} icon={<History />}>
+        <p className="mb-3 text-xs text-muted">{tr.inventaire.historySub}</p>
+        {mouvements.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted">{tr.inventaire.historyEmpty}</p>
+        ) : (
+          <ul className="max-h-80 space-y-2 overflow-y-auto pr-1">
+            {mouvements.map((m) => (
+              <li key={m.notion_id} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm">
+                <span className={`font-semibold tabular-nums ${m.sens === "Entrée" ? "text-success" : "text-danger"}`}>
+                  {m.sens === "Entrée" ? "+" : "−"}{m.quantite ?? 0}{article.unite ? ` ${article.unite}` : ""}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted">{m.motif || tv(lang, m.sens ?? "") || ""}</span>
+                <span className="whitespace-nowrap text-xs text-muted">{nomDe(m.par)} · {m.date_mouvement ? new Date(m.date_mouvement).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB") : "·"}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </Dialog>
     </>
   );

@@ -50,7 +50,7 @@ async function notionCreate(table: string, properties: Record<string, any>): Pro
 }
 
 function refresh() {
-  for (const p of ["/secretariat", "/medecin", "/patients", "/taches", "/finances", "/admin", "/examens", "/perfusions", "/appareils", "/dossiers"]) {
+  for (const p of ["/secretariat", "/medecin", "/patients", "/taches", "/finances", "/admin", "/examens", "/perfusions", "/appareils", "/dossiers", "/inventaire"]) {
     revalidatePath(p, "layout");
   }
 }
@@ -170,7 +170,8 @@ export async function creerDossier(input: {
 
     const pageId = await notionCreate("dossiers", props);
 
-    await supabaseAdmin().from("dossiers").insert({
+    const admin = supabaseAdmin();
+    await admin.from("dossiers").insert({
       notion_id: pageId,
       id_dossier: ref,
       patient: [input.patient],
@@ -188,6 +189,56 @@ export async function creerDossier(input: {
       dossier_parent: input.dossier_parent ? [input.dossier_parent] : [],
       created_time: new Date().toISOString(),
     });
+
+    // Tâche de triage : chaque nouveau cas atterrit chez la Dre par défaut
+    // (décision 8 juil. — sur le dossier uniquement, pas de date d'échéance).
+    // Best effort : l'échec de la tâche ne bloque pas la création du dossier.
+    try {
+      const { data: owner } = await admin
+        .from("app_members")
+        .select("personnel_notion_id")
+        .eq("is_owner", true)
+        .not("personnel_notion_id", "is", null)
+        .limit(1)
+        .maybeSingle();
+      const responsable = owner?.personnel_notion_id ?? null;
+      const { data: pat } = await admin
+        .from("patients")
+        .select("nom")
+        .eq("notion_id", input.patient)
+        .maybeSingle();
+      const titre = `Prendre en charge — ${pat?.nom ?? ref}`;
+
+      const tProps: Record<string, any> = {
+        Titre: P.title(titre),
+        Statut: P.select("À faire"),
+        Domaine: P.select("Clinique"),
+        Priorité: P.select("Normale"),
+        Calendrier: P.select("Ponctuelle"),
+        "Patient lié": P.relation([input.patient]),
+        "Dossier lié": P.relation([pageId]),
+      };
+      if (responsable) tProps["Responsable"] = P.relation([responsable]);
+      if (session.member.personnel_notion_id) tProps["Créé par"] = P.relation([session.member.personnel_notion_id]);
+
+      const tacheId = await notionCreate("taches", tProps);
+      await admin.from("taches").insert({
+        notion_id: tacheId,
+        titre,
+        statut: "À faire",
+        domaine: "Clinique",
+        priorite: "Normale",
+        calendrier: "Ponctuelle",
+        responsable: responsable ? [responsable] : [],
+        cree_par: session.member.personnel_notion_id ? [session.member.personnel_notion_id] : [],
+        patient_lie: [input.patient],
+        dossier_lie: [pageId],
+        created_time: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error("creerDossier: tâche de triage non créée", e);
+    }
+
     refresh();
     return { ok: true };
   } catch (e) {
@@ -996,6 +1047,141 @@ export async function creerPerfusion(input: {
       await notionUpdate(perfusionId, { Paiement: P.relation([payId]) });
       await admin.from("perfusions").update({ paiement: [payId] }).eq("notion_id", perfusionId);
     }
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ============================================================
+// Inventaire (consommables) — le journal des mouvements fait foi
+// ============================================================
+
+/** Nouvel article au stock. Réservé à l'administration (décision 8 juil.). */
+export async function creerArticle(input: {
+  article: string;
+  categorie?: string | null;
+  quantite?: number | null;
+  unite?: string | null;
+  seuil_minimum?: number | null;
+  fournisseur?: string | null;
+  notes?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") {
+      return { ok: false, error: "Réservé à l'administration" };
+    }
+    if (!input.article.trim()) return { ok: false, error: "Nom requis" };
+
+    const qty = Math.max(0, input.quantite ?? 0);
+    const props: Record<string, any> = {
+      Article: P.title(input.article.trim()),
+      "Quantité": P.number(qty),
+      "Seuil minimum": P.number(input.seuil_minimum ?? 0),
+    };
+    if (input.categorie) props["Catégorie"] = P.select(input.categorie);
+    if (input.unite) props["Unité"] = P.select(input.unite);
+    if (input.fournisseur) props["Fournisseur"] = P.text(input.fournisseur);
+    if (input.notes) props["Notes"] = P.text(input.notes);
+
+    const pageId = await notionCreate("stock", props);
+    await supabaseAdmin().from("stock").insert({
+      notion_id: pageId,
+      article: input.article.trim(),
+      categorie: input.categorie ?? null,
+      quantite: qty,
+      unite: input.unite ?? null,
+      seuil_minimum: input.seuil_minimum ?? 0,
+      fournisseur: input.fournisseur ?? null,
+      notes: input.notes ?? null,
+      created_time: new Date().toISOString(),
+    });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Mouvement de stock (Entrée = réappro / Sortie = utilisation) : écrit la
+ * ligne du journal ET met à jour la quantité de l'article. La quantité ne
+ * descend jamais sous zéro.
+ */
+export async function mouvementStock(
+  articleId: string,
+  input: { sens: "Entrée" | "Sortie"; quantite: number; motif?: string | null }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "stock")) return { ok: false, error: "Accès refusé" };
+    const qte = Math.floor(input.quantite);
+    if (!qte || qte <= 0) return { ok: false, error: "Quantité invalide" };
+
+    const admin = supabaseAdmin();
+    const { data: art } = await admin
+      .from("stock")
+      .select("article, quantite")
+      .eq("notion_id", articleId)
+      .single();
+    if (!art) return { ok: false, error: "Article introuvable (synchronisation ?)" };
+
+    const current = Number(art.quantite ?? 0);
+    const next = input.sens === "Entrée" ? current + qte : current - qte;
+    if (next < 0) return { ok: false, error: "Stock insuffisant pour cette sortie" };
+
+    const today = new Date().toISOString().slice(0, 10);
+    const ref = `MV-${Date.now().toString(36).toUpperCase()}`;
+
+    // 1. La ligne du journal
+    const mvProps: Record<string, any> = {
+      "Réf": P.title(ref),
+      Article: P.relation([articleId]),
+      Sens: P.select(input.sens),
+      "Quantité": P.number(qte),
+      Date: P.date(today),
+    };
+    if (input.motif) mvProps["Motif"] = P.text(input.motif);
+    if (session.member.personnel_notion_id) mvProps["Par"] = P.relation([session.member.personnel_notion_id]);
+    const mvId = await notionCreate("stock_mouvements", mvProps);
+
+    // 2. La quantité de l'article (+ date de réappro sur une entrée)
+    const artPatch: Record<string, any> = { "Quantité": P.number(next) };
+    if (input.sens === "Entrée") artPatch["Dernier réappro"] = P.date(today);
+    await notionUpdate(articleId, artPatch);
+
+    await admin.from("stock_mouvements").insert({
+      notion_id: mvId,
+      ref_mouvement: ref,
+      article: [articleId],
+      sens: input.sens,
+      quantite: qte,
+      motif: input.motif ?? null,
+      par: session.member.personnel_notion_id ? [session.member.personnel_notion_id] : [],
+      date_mouvement: today,
+      created_time: new Date().toISOString(),
+    });
+    await admin
+      .from("stock")
+      .update({ quantite: next, ...(input.sens === "Entrée" ? { dernier_reappro: today } : {}) })
+      .eq("notion_id", articleId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Ajuste le seuil minimum d'un article. */
+export async function setSeuilArticle(articleId: string, seuil: number): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "stock")) return { ok: false, error: "Accès refusé" };
+    const s = Math.max(0, Math.floor(seuil));
+    await notionUpdate(articleId, { "Seuil minimum": P.number(s) });
+    await supabaseAdmin().from("stock").update({ seuil_minimum: s }).eq("notion_id", articleId);
     refresh();
     return { ok: true };
   } catch (e) {

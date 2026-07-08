@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnel, getPersonnelMap, personName } from "@/lib/data";
+import { getPersonnel, getPersonnelMap, personName, isSoignant } from "@/lib/data";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
@@ -53,7 +53,7 @@ export default async function PatientsPage({
 
   const personnel = await getPersonnel();
   const personnelMap = await getPersonnelMap();
-  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const medecins = personnel.filter(isSoignant);
   const canManage = can(session, "patients_all");
   const problemes = [
     "Palpitations ou arythmie suspectée", "FA suivi", "Revue Holter", "Suivi hypertension",

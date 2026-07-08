@@ -29,6 +29,14 @@ export const getPatientsIndex = cache(async (): Promise<Map<string, Patient>> =>
   return new Map(((data ?? []) as Patient[]).map((p) => [p.notion_id, p]));
 });
 
+/**
+ * Décision (8 juil.) : l'IPA est traitée comme un médecin partout —
+ * sélecteurs d'assignation, prise en charge des cas, vues médecin.
+ */
+export function isSoignant(p: PersonnelRow): boolean {
+  return p.actif && (p.role === "Médecin" || p.role === "IPA");
+}
+
 /** Nom du patient pour une liste d'ids (relation Notion). */
 export function patientName(ids: string[] | null | undefined, index: Map<string, Patient>): string {
   if (!ids || ids.length === 0) return EMPTY;

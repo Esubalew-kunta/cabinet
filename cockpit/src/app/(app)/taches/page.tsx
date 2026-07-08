@@ -24,7 +24,7 @@ import {
 import { ListChecks } from "lucide-react";
 import type { Tache } from "@/lib/types";
 
-const FILTRES = ["ouvertes", "pool", "toutes", "recurrentes", "terminees"] as const;
+const FILTRES = ["ouvertes", "pool", "retard", "toutes", "recurrentes", "terminees"] as const;
 
 /** Id de la fiche Personnel du propriétaire (Dr Amraoui) — mémo par requête. */
 async function getOwnerPersonnelId(): Promise<string | null> {
@@ -51,19 +51,28 @@ export default async function TachesPage({
   const supa = await supabaseServer();
 
   let query = supa.from("taches").select("*");
-  if (filtre === "ouvertes" || filtre === "pool") query = query.neq("statut", "Terminé");
+  if (filtre === "ouvertes" || filtre === "pool" || filtre === "retard") query = query.neq("statut", "Terminé");
   if (filtre === "terminees") query = query.eq("statut", "Terminé");
   if (filtre === "recurrentes") query = query.eq("calendrier", "Récurrente");
   if (domaine) query = query.eq("domaine", domaine);
   if (qui) query = query.contains("responsable", [qui]);
 
-  const [{ data }, personnel, patientsIndex, ownerId] = await Promise.all([
+  const [{ data }, ouvertes, personnel, patientsIndex, ownerId] = await Promise.all([
     query.order("echeance", { ascending: true, nullsFirst: false }).limit(200),
+    // Toutes les tâches ouvertes (pour le résumé par personne, hors filtres)
+    supa.from("taches").select("responsable, echeance").neq("statut", "Terminé").limit(500)
+      .then((r) => (r.data ?? []) as Pick<Tache, "responsable" | "echeance">[]),
     getPersonnel(),
     getPatientsIndex(),
     getOwnerPersonnelId(),
   ]);
   let taches = (data ?? []) as Tache[];
+
+  // En retard : échéance passée et pas marquée Terminé.
+  const now = Date.now();
+  const isOverdue = (t: Pick<Tache, "echeance"> & { statut?: string | null }) =>
+    Boolean(t.echeance) && new Date(t.echeance as string).getTime() < now && t.statut !== "Terminé";
+  if (filtre === "retard") taches = taches.filter((t) => isOverdue(t));
 
   // Pool (« À prendre ») : sans responsable, ou au propriétaire par défaut.
   const isPool = (t: Tache) => {
@@ -71,6 +80,16 @@ export default async function TachesPage({
     return r.length === 0 || (ownerId !== null && r.length === 1 && r[0] === ownerId);
   };
   if (filtre === "pool") taches = taches.filter(isPool);
+
+  // Résumé par personne : « Rita 3 (1 en retard) · … » sur toutes les tâches ouvertes.
+  const parPersonne = new Map<string, { open: number; overdue: number }>();
+  for (const t of ouvertes) {
+    const key = t.responsable?.[0] ?? "__pool__";
+    const s = parPersonne.get(key) ?? { open: 0, overdue: 0 };
+    s.open++;
+    if (t.echeance && new Date(t.echeance).getTime() < now) s.overdue++;
+    parPersonne.set(key, s);
+  }
 
   const canDelete = session.member.is_owner || session.member.role === "admin";
   const actifs = personnel.filter((p) => p.actif);
@@ -134,6 +153,27 @@ export default async function TachesPage({
         </form>
       </div>
 
+      {/* Qui a quoi : résumé des tâches ouvertes par personne */}
+      {parPersonne.size > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {[...parPersonne.entries()]
+            .sort((a, b) => b[1].open - a[1].open)
+            .map(([pid, s]) => {
+              const nom = pid === "__pool__"
+                ? tr.taches.poolBadge
+                : personnel.find((p) => p.notion_id === pid)?.nom ?? "?";
+              return (
+                <Link key={pid} href={urlFor({ qui: pid === "__pool__" ? undefined : pid, filtre: "ouvertes" })}>
+                  <Badge tone={s.overdue > 0 ? "red" : "gray"} className="transition-opacity hover:opacity-80">
+                    {nom} {s.open}
+                    {s.overdue > 0 ? ` (${tr.taches.overdueCount(s.overdue)})` : ""}
+                  </Badge>
+                </Link>
+              );
+            })}
+        </div>
+      )}
+
       <Card>
         {taches.length === 0 ? (
           <Empty message={tr.taches.empty} />
@@ -160,7 +200,10 @@ export default async function TachesPage({
                       ? RECURRENCE[lang][t.recurrence ?? ""] ?? t.recurrence
                       : tr.taches.oneOff}
                   </td>
-                  <td className="whitespace-nowrap">{formatDate(t.echeance, lang)}</td>
+                  <td className={cn("whitespace-nowrap", isOverdue(t) && "font-semibold text-danger")}>
+                    {formatDate(t.echeance, lang)}
+                    {isOverdue(t) && <Badge tone="red" className="ml-2">{tr.taches.filters.retard}</Badge>}
+                  </td>
                   <td className="text-xs">
                     {t.patient_lie?.[0] ? (
                       <Link href={`/patients/${t.patient_lie[0]}`} className="text-primary hover:underline">

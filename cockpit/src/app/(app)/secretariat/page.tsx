@@ -3,24 +3,25 @@ import Link from "next/link";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnel, getPatientsIndex, patientName } from "@/lib/data";
+import { getPersonnel, getPatientsIndex, patientName, isSoignant } from "@/lib/data";
 import { Card, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
-import { PRIORITE, STATUT_APPAREIL, STATUT_PAIEMENT, STATUT_INTAKE } from "@/lib/labels";
+import { PRIORITE, STATUT_TACHE, STATUT_APPAREIL, STATUT_PAIEMENT, STATUT_INTAKE } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import {
   VerifierDossierButton,
   StatutSelect,
+  NouvelleTacheButton,
   NouveauPatientButton,
   NouveauDossierButton,
   EncaisserButton,
   AppareilRenduButton,
 } from "@/components/interactive";
 import { tv } from "@/lib/i18n/dict";
-import { CalendarClock, ClipboardList, CreditCard, Inbox, TriangleAlert, Watch } from "lucide-react";
-import type { Dossier, Examen, Paiement } from "@/lib/types";
+import { ArrowRight, CalendarClock, ClipboardList, CreditCard, Inbox, ListChecks, TriangleAlert, Watch } from "lucide-react";
+import type { Dossier, Tache, Examen, Paiement } from "@/lib/types";
 
 export default async function SecretariatPage() {
   const session = await getSession();
@@ -30,7 +31,7 @@ export default async function SecretariatPage() {
   const supa = await supabaseServer();
   const today = new Date().toISOString();
 
-  const [aTraiter, rdvAVenir, infosManquantes, appareils, paiements, personnel, patientsIndex] =
+  const [aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex] =
     await Promise.all([
       supa
         .from("dossiers")
@@ -56,6 +57,13 @@ export default async function SecretariatPage() {
         .limit(20)
         .then((r) => (r.data ?? []) as Dossier[]),
       supa
+        .from("taches")
+        .select("*")
+        .neq("statut", "Terminé")
+        .order("echeance", { ascending: true, nullsFirst: false })
+        .limit(15)
+        .then((r) => (r.data ?? []) as Tache[]),
+      supa
         .from("examens")
         .select("*")
         .in("statut_appareil", ["Remis", "Bientôt dû", "En retard"])
@@ -73,7 +81,7 @@ export default async function SecretariatPage() {
       getPatientsIndex(),
     ]);
 
-  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const medecins = personnel.filter(isSoignant);
   const problemes = [
     "Palpitations ou arythmie suspectée", "FA suivi", "Revue Holter", "Suivi hypertension",
     "Cardiologie préventive", "Syncope ou vertige", "Gêne thoracique non urgente", "Suivi post-ablation",
@@ -95,6 +103,7 @@ export default async function SecretariatPage() {
                 .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""))}
               medecins={medecins}
             />
+            <NouvelleTacheButton personnel={personnel.filter((p) => p.actif)} />
           </>
         }
       />
@@ -186,6 +195,38 @@ export default async function SecretariatPage() {
                       </div>
                     </td>
                     <td><StatusBadge value={d.statut_intake} map={STATUT_INTAKE} /></td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader
+            icon={<ListChecks />}
+            title={tr.secretariat.tasksTitle}
+            subtitle={tr.secretariat.tasksSub}
+            action={
+              <Link href="/taches" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                {tr.common.seeAll} <ArrowRight className="size-3" />
+              </Link>
+            }
+          />
+          {taches.length === 0 ? (
+            <Empty message={tr.secretariat.tasksEmpty} />
+          ) : (
+            <Table>
+              <THead>
+                <th>{tr.secretariat.colTask}</th><th>{tr.common.due}</th><th>{tr.common.priority}</th><th>{tr.common.status}</th>
+              </THead>
+              <TBody>
+                {taches.map((t) => (
+                  <Tr key={t.notion_id}>
+                    <td className="font-medium">{t.titre}</td>
+                    <td className="whitespace-nowrap">{formatDate(t.echeance, lang)}</td>
+                    <td><StatusBadge value={t.priorite} map={PRIORITE} /></td>
+                    <td><StatusBadge value={t.statut} map={STATUT_TACHE} /></td>
                   </Tr>
                 ))}
               </TBody>

@@ -185,6 +185,33 @@ export const SOURCES: SourceSpec[] = [
     ],
   },
   {
+    table: "stock",
+    dataSourceId: "345f2d30-2b7a-483d-8d29-b79e4cc024d6",
+    props: [
+      { prop: "Article", column: "article", kind: "title" },
+      { prop: "Catégorie", column: "categorie", kind: "select" },
+      { prop: "Quantité", column: "quantite", kind: "number" },
+      { prop: "Unité", column: "unite", kind: "select" },
+      { prop: "Seuil minimum", column: "seuil_minimum", kind: "number" },
+      { prop: "Fournisseur", column: "fournisseur", kind: "rich_text" },
+      { prop: "Dernier réappro", column: "dernier_reappro", kind: "date" },
+      { prop: "Notes", column: "notes", kind: "rich_text" },
+    ],
+  },
+  {
+    table: "stock_mouvements",
+    dataSourceId: "27e87acf-ce88-4d9c-bc67-42d6cf4ffb96",
+    props: [
+      { prop: "Réf", column: "ref_mouvement", kind: "title" },
+      { prop: "Article", column: "article", kind: "relation" },
+      { prop: "Sens", column: "sens", kind: "select" },
+      { prop: "Quantité", column: "quantite", kind: "number" },
+      { prop: "Motif", column: "motif", kind: "rich_text" },
+      { prop: "Par", column: "par", kind: "relation" },
+      { prop: "Date", column: "date_mouvement", kind: "date" },
+    ],
+  },
+  {
     table: "personnel",
     dataSourceId: "2895672b-5349-4ac6-a505-a6aad98c3495",
     props: [

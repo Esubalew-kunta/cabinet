@@ -3,7 +3,7 @@ import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getPatientsIndex, patientName, getPersonnel } from "@/lib/data";
+import { getPatientsIndex, patientName, getPersonnel, isSoignant } from "@/lib/data";
 import { Card, CardHeader, StatCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
@@ -67,7 +67,7 @@ export default async function AppareilsPage() {
   const types = [...TYPES_APPAREIL.filter((t) => unites.some((u) => u.type === t)),
     ...[...new Set(unites.map((u) => u.type))].filter((t): t is string => Boolean(t) && !TYPES_APPAREIL.includes(t as (typeof TYPES_APPAREIL)[number]))];
 
-  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const medecins = personnel.filter(isSoignant);
   const patientsList = [...patientsIndex.values()]
     .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))
     .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""));

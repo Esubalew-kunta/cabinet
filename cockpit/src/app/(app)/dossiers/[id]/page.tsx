@@ -3,12 +3,12 @@ import { redirect } from "next/navigation";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnel, getPersonnelMap, getPatientsIndex, personName } from "@/lib/data";
+import { getPersonnel, getPersonnelMap, getPatientsIndex, personName, isSoignant } from "@/lib/data";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
-import { STATUT_INTAKE, STATUT_MEDECIN, STATUT_CR, STATUT_APPAREIL, STATUT_PAIEMENT, PRIORITE } from "@/lib/labels";
+import { STATUT_INTAKE, STATUT_MEDECIN, STATUT_CR, STATUT_APPAREIL, STATUT_PAIEMENT, STATUT_TACHE, PRIORITE } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import { tv } from "@/lib/i18n/dict";
 import {
@@ -18,9 +18,10 @@ import {
   LienCRButton,
   OrdonnanceToggle,
   NouveauDossierButton,
+  NouvelleTacheButton,
 } from "@/components/interactive";
-import { Activity, ArrowLeft, CreditCard, ExternalLink, FileText, FolderOpen, GitBranch, LockKeyhole, LockKeyholeOpen } from "lucide-react";
-import type { Dossier, Examen, Paiement } from "@/lib/types";
+import { Activity, ArrowLeft, CreditCard, ExternalLink, FileText, FolderOpen, GitBranch, ListChecks, LockKeyhole, LockKeyholeOpen } from "lucide-react";
+import type { Dossier, Examen, Paiement, Tache } from "@/lib/types";
 
 /**
  * Une page par cas : la porte secrétariat, le cycle de vie du compte rendu,
@@ -56,7 +57,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
   ]);
   const patient = patientId ? patientsIndex.get(patientId) : undefined;
 
-  const [examens, paiements, enfants, parent] = await Promise.all([
+  const [examens, paiements, taches, enfants, parent] = await Promise.all([
     patientId
       ? supa.from("examens").select("*").contains("patient", [patientId]).order("date_pose", { ascending: false }).limit(20)
           .then((r) => (r.data ?? []) as Examen[])
@@ -65,6 +66,8 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
       ? supa.from("paiements").select("*").contains("patient", [patientId]).order("created_time", { ascending: false }).limit(20)
           .then((r) => (r.data ?? []) as Paiement[])
       : Promise.resolve([] as Paiement[]),
+    supa.from("taches").select("*").contains("dossier_lie", [id]).neq("statut", "Terminé").limit(20)
+      .then((r) => (r.data ?? []) as Tache[]),
     supa.from("dossiers").select("*").contains("dossier_parent", [id]).order("created_time", { ascending: false })
       .then((r) => (r.data ?? []) as Dossier[]),
     dossier.dossier_parent?.[0]
@@ -73,7 +76,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
       : Promise.resolve(null),
   ]);
 
-  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const medecins = personnel.filter(isSoignant);
   const patients = patient ? [{ notion_id: patient.notion_id, nom: patient.nom }] : [];
   const canSecretariat = can(session, "dossiers_all");
   const isVerified = dossier.visible_medecin;
@@ -292,6 +295,43 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
                     <td className="text-xs">{tv(lang, d.motif) ?? EMPTY}</td>
                     <td className="text-xs">{personName(d.medecin_assigne, personnelMap)}</td>
                     <td><StatusBadge value={d.statut_intake} map={STATUT_INTAKE} /></td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </Card>
+
+        {/* Tâches liées */}
+        <Card>
+          <CardHeader
+            icon={<ListChecks />}
+            title={tr.dossierDetail.tasksTitle}
+            action={
+              can(session, "taches") ? (
+                <NouvelleTacheButton
+                  personnel={personnel.filter((p) => p.actif)}
+                  patients={patients}
+                  defaultPatient={patientId ?? undefined}
+                  defaultDossier={dossier.notion_id}
+                />
+              ) : undefined
+            }
+          />
+          {taches.length === 0 ? (
+            <Empty message={tr.patientDetail.tasksEmpty} />
+          ) : (
+            <Table>
+              <THead>
+                <th>{tr.secretariat.colTask}</th><th>{tr.common.due}</th><th>{tr.patientDetail.colOwner}</th><th>{tr.common.status}</th>
+              </THead>
+              <TBody>
+                {taches.map((t) => (
+                  <Tr key={t.notion_id}>
+                    <td className="font-medium">{t.titre}</td>
+                    <td className="whitespace-nowrap">{formatDate(t.echeance, lang)}</td>
+                    <td className="text-xs">{personName(t.responsable, personnelMap)}</td>
+                    <td><StatusBadge value={t.statut} map={STATUT_TACHE} /></td>
                   </Tr>
                 ))}
               </TBody>

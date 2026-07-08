@@ -135,6 +135,29 @@ export type Perfusion = {
   patient: string[];
 };
 
+export type Article = {
+  notion_id: string;
+  article: string | null;
+  categorie: string | null;
+  quantite: number | null;
+  unite: string | null;
+  seuil_minimum: number | null;
+  fournisseur: string | null;
+  dernier_reappro: string | null;
+  notes: string | null;
+};
+
+export type Mouvement = {
+  notion_id: string;
+  ref_mouvement: string | null;
+  article: string[];
+  sens: string | null;
+  quantite: number | null;
+  motif: string | null;
+  par: string[];
+  date_mouvement: string | null;
+};
+
 export type PersonnelRow = {
   notion_id: string;
   nom: string | null;

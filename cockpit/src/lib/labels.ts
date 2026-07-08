@@ -132,6 +132,16 @@ export const MOTIFS_DOSSIER = [
 ] as const;
 export const INDICATIONS_EXAMEN = ["FA", "HTA", "ESV", "Palpitations", "SAS", "Syncope", "Autre"] as const;
 
+/** Inventaire (consommables) */
+export const CATEGORIES_STOCK = ["Consommable", "Fourniture", "Pièce appareil", "Autre"] as const;
+export const UNITES_STOCK = ["pièces", "boîtes", "ml", "paires"] as const;
+
+export const STATUT_STOCK: Record<string, Tone> = {
+  "OK": tone("green"),
+  "Bas": tone("orange"),
+  "Rupture": tone("red"),
+};
+
 /** Patients */
 export const STATUT_PATIENT: Record<string, Tone> = {
   "Actif": tone("green"),
@@ -157,6 +167,6 @@ export const ROLE_TONES: Record<string, Tone> = {
 /** Ordre d'affichage des zones de la matrice de permissions */
 export const AREA_KEYS = [
   "patients_all", "patients_own", "dossiers_all", "dossiers_own", "taches", "taches_perso_dr",
-  "examens", "perfusions", "paiements_own", "paiements_all", "finances", "admin_stats",
+  "examens", "stock", "perfusions", "paiements_own", "paiements_all", "finances", "admin_stats",
   "gestion_comptes", "sync",
 ] as const;

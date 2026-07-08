@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSession, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnel, getPatientsIndex, patientName } from "@/lib/data";
+import { getPersonnel, getPatientsIndex, patientName, isSoignant } from "@/lib/data";
 import { Card, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
@@ -11,9 +11,9 @@ import { StatusBadge } from "@/components/ui/badge";
 import { AutoSubmitSelect } from "@/components/ui/auto-submit-select";
 import { PRIORITE, NIVEAU_VIGILANCE } from "@/lib/labels";
 import { formatDate, EMPTY } from "@/lib/utils";
-import { StatutSelect } from "@/components/interactive";
-import { ArrowRight, Microscope, Stethoscope, Users } from "lucide-react";
-import type { Dossier, Examen, Patient } from "@/lib/types";
+import { StatutSelect, NouvelleTacheButton } from "@/components/interactive";
+import { ArrowRight, ListChecks, Microscope, Stethoscope, Users } from "lucide-react";
+import type { Dossier, Tache, Examen, Patient } from "@/lib/types";
 
 export default async function MedecinPage({
   searchParams,
@@ -23,13 +23,14 @@ export default async function MedecinPage({
   const session = await getSession();
   const { member } = session;
   const isSupervisor = member.is_owner || member.role === "admin";
-  if (!isSupervisor && member.role !== "medecin") redirect(homeFor(member));
+  // L'IPA est traitée comme un médecin (décision 8 juil.)
+  if (!isSupervisor && member.role !== "medecin" && member.role !== "ipa") redirect(homeFor(member));
   const { lang, tr } = await getTr();
 
   const params = await searchParams;
   const supa = await supabaseServer();
   const personnel = await getPersonnel();
-  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const medecins = personnel.filter(isSoignant);
 
   // Le médecin voit les siens (RLS fait déjà foi) ; owner/admin peuvent filtrer.
   const focusId = isSupervisor
@@ -39,7 +40,7 @@ export default async function MedecinPage({
   const filterByMedecin = <T extends { medecin_assigne?: string[] }>(rows: T[]): T[] =>
     focusId ? rows.filter((r) => (r.medecin_assigne ?? []).includes(focusId)) : rows;
 
-  const [dossiersRaw, patientsIndex, examensRaw] = await Promise.all([
+  const [dossiersRaw, patientsIndex, tachesRaw, examensRaw] = await Promise.all([
     supa
       .from("dossiers")
       .select("*")
@@ -49,6 +50,13 @@ export default async function MedecinPage({
       .limit(60)
       .then((r) => (r.data ?? []) as Dossier[]),
     getPatientsIndex(),
+    supa
+      .from("taches")
+      .select("*")
+      .neq("statut", "Terminé")
+      .order("echeance", { ascending: true, nullsFirst: false })
+      .limit(60)
+      .then((r) => (r.data ?? []) as Tache[]),
     supa
       .from("examens")
       .select("*")
@@ -60,6 +68,9 @@ export default async function MedecinPage({
   ]);
 
   const dossiers = filterByMedecin(dossiersRaw);
+  const mesTaches = focusId
+    ? tachesRaw.filter((t) => (t.responsable ?? []).includes(focusId))
+    : tachesRaw;
   const mesPatients: Patient[] = Array.from(patientsIndex.values())
     .filter((p) => p.statut !== "Inactif")
     .filter((p) => (focusId ? (p.medecin_assigne ?? []).includes(focusId) : true))
@@ -95,6 +106,7 @@ export default async function MedecinPage({
                 </AutoSubmitSelect>
               </form>
             )}
+            <NouvelleTacheButton personnel={personnel.filter((p) => p.actif)} />
           </>
         }
       />
@@ -200,6 +212,44 @@ export default async function MedecinPage({
                       <td>{patientName(e.patient, patientsIndex)}</td>
                       <td className="text-xs">{e.type ?? EMPTY}</td>
                       <td className="whitespace-nowrap">{formatDate(e.restitution_effective, lang)}</td>
+                    </Tr>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader
+              icon={<ListChecks />}
+              title={tr.medecin.myTasksTitle}
+              subtitle={tr.medecin.myTasksSub}
+              action={
+                <Link href="/taches" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                  {tr.common.seeAll} <ArrowRight className="size-3" />
+                </Link>
+              }
+            />
+            {mesTaches.length === 0 ? (
+              <Empty message={tr.medecin.myTasksEmpty} />
+            ) : (
+              <Table>
+                <THead>
+                  <th>{tr.taches.colTask}</th><th>{tr.common.due}</th><th>{tr.common.status}</th>
+                </THead>
+                <TBody>
+                  {mesTaches.slice(0, 10).map((t) => (
+                    <Tr key={t.notion_id}>
+                      <td className="font-medium">{t.titre}</td>
+                      <td className="whitespace-nowrap">{formatDate(t.echeance, lang)}</td>
+                      <td>
+                        <StatutSelect
+                          id={t.notion_id}
+                          value={t.statut}
+                          kind="tache"
+                          options={["À faire", "En cours", "En attente", "Bloqué", "Terminé"]}
+                        />
+                      </td>
                     </Tr>
                   ))}
                 </TBody>
