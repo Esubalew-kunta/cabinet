@@ -9,6 +9,7 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import { tv } from "@/lib/i18n/dict";
+import { NouvellePerfusionButton } from "@/components/interactive";
 import { Syringe } from "lucide-react";
 import type { Perfusion } from "@/lib/types";
 
@@ -25,10 +26,18 @@ export default async function PerfusionsPage() {
   ]);
 
   const showHonoraires = can(session, "finances") || session.member.role === "ipa";
+  const patientsList = [...patientsIndex.values()]
+    .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))
+    .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""));
 
   return (
     <div className="space-y-4">
-      <PageHeader icon={<Syringe />} title={tr.perfusions.title} subtitle={tr.perfusions.subtitle} />
+      <PageHeader
+        icon={<Syringe />}
+        title={tr.perfusions.title}
+        subtitle={tr.perfusions.subtitle}
+        actions={<NouvellePerfusionButton patients={patientsList} />}
+      />
       <Card>
         {perfusions.length === 0 ? (
           <Empty message={tr.perfusions.empty} />

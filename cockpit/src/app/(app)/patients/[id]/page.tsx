@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnelMap, personName } from "@/lib/data";
+import { getPersonnel, getPersonnelMap, personName } from "@/lib/data";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
@@ -13,8 +13,8 @@ import {
 } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import { tv } from "@/lib/i18n/dict";
-import { EncaisserButton } from "@/components/interactive";
-import { ExternalLink, ArrowLeft, Phone, Mail, FolderOpen, Activity, CreditCard, Syringe, ListChecks } from "lucide-react";
+import { EncaisserButton, ModifierPatientButton, NouveauDossierButton } from "@/components/interactive";
+import { ExternalLink, ArrowLeft, Phone, Mail, MapPin, Cake, StickyNote, FolderOpen, Activity, CreditCard, Syringe, ListChecks } from "lucide-react";
 import type { Patient, Dossier, Examen, Paiement, Perfusion, Tache } from "@/lib/types";
 
 export default async function PatientPage({ params }: { params: Promise<{ id: string }> }) {
@@ -53,6 +53,9 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
       .then((r) => (r.data ?? []) as Tache[]),
     getPersonnelMap(),
   ]);
+  const personnel = await getPersonnel();
+  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const canManage = can(session, "patients_all");
 
   const paiements = canSeeAllPayments ? paiementsFull : paiementsStatus;
   const totalDu = paiements.reduce((s, p) => s + Number(p.montant_du ?? 0), 0);
@@ -85,12 +88,27 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
             {patient.nom_complet && <p className="text-sm text-muted">{patient.nom_complet}</p>}
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span className="text-muted">PSID-{patient.psid ?? "?"}</span>
+              {patient.date_naissance && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Cake className="size-3.5 text-muted" /> {formatDate(patient.date_naissance, lang)}
+                </span>
+              )}
               {contact.map((c, i) => (
                 <span key={i} className="inline-flex items-center gap-1.5">
                   <c.icon className="size-3.5 text-muted" /> {c.value}
                 </span>
               ))}
+              {patient.adresse && (
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="size-3.5 text-muted" /> {patient.adresse}
+                </span>
+              )}
             </div>
+            {patient.notes_secretariat && (
+              <p className="mt-2 inline-flex items-start gap-1.5 rounded-lg bg-background px-2.5 py-1.5 text-xs text-muted">
+                <StickyNote className="mt-0.5 size-3.5 shrink-0" /> {patient.notes_secretariat}
+              </p>
+            )}
             <div className="mt-2 flex flex-wrap gap-2">
               {patient.probleme_principal && <Badge tone="blue">{patient.probleme_principal}</Badge>}
               {patient.type_patient && <Badge tone="gray">{patient.type_patient}</Badge>}
@@ -103,6 +121,17 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
             <p><span className="text-muted">{tr.patientDetail.lastRdv}</span> {formatDate(patient.dernier_rdv, lang)}</p>
             <p><span className="text-muted">{tr.patientDetail.nextRdv}</span> <strong>{formatDate(patient.prochain_rdv, lang)}</strong></p>
             <div className="flex justify-end gap-2 pt-1">
+              {canManage && (
+                <>
+                  <ModifierPatientButton patient={patient} />
+                  <NouveauDossierButton
+                    patients={[{ notion_id: patient.notion_id, nom: patient.nom }]}
+                    medecins={medecins}
+                    defaultPatient={patient.notion_id}
+                    variant="secondary"
+                  />
+                </>
+              )}
               {patient.lien_doctolib && (
                 <a href={patient.lien_doctolib} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-soft/70">
@@ -146,8 +175,12 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
               <TBody>
                 {dossiers.map((d) => (
                   <Tr key={d.notion_id}>
-                    <td className="font-medium">{d.id_dossier ?? EMPTY}</td>
-                    <td className="text-xs">{d.motif ?? EMPTY}</td>
+                    <td>
+                      <Link href={`/dossiers/${d.notion_id}`} className="font-medium text-primary hover:underline">
+                        {d.id_dossier ?? EMPTY}
+                      </Link>
+                    </td>
+                    <td className="text-xs">{tv(lang, d.motif) ?? EMPTY}</td>
                     <td className="whitespace-nowrap">{formatDate(d.rendez_vous, lang)}</td>
                     <td><StatusBadge value={d.statut_intake} map={STATUT_INTAKE} /></td>
                     <td><StatusBadge value={d.statut_medecin} map={STATUT_MEDECIN} /></td>

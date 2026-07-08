@@ -21,6 +21,9 @@ export type Patient = {
   prochain_rdv: string | null;
   rappel_rdv_envoye_le: string | null;
   medecin_assigne: string[];
+  date_naissance: string | null;
+  adresse: string | null;
+  notes_secretariat: string | null;
 };
 
 export type Dossier = {
@@ -41,6 +44,11 @@ export type Dossier = {
   visible_medecin: boolean;
   medecin_assigne: string[];
   rendez_vous: string | null;
+  dossier_parent: string[];
+  statut_cr: string | null;
+  cr_envoye_le: string | null;
+  lien_cr: string | null;
+  ordonnance_remise: boolean;
 };
 
 export type Tache = {
@@ -79,6 +87,24 @@ export type Examen = {
   patient: string[];
   interprete: string[];
   responsable: string[];
+  appareil: string[];
+  cat: string | null;
+  contacte_appareillage: boolean;
+  societe_appareillage: string | null;
+  appareillage_pose_le: string | null;
+  rdv_suivi_pgv: string | null;
+  rdv_pneumologue: string | null;
+};
+
+export type Appareil = {
+  notion_id: string;
+  ref_appareil: string | null;
+  type: string | null;
+  numero: string | null;
+  etat: string | null;
+  examen_en_cours: string[];
+  notes: string | null;
+  date_achat: string | null;
 };
 
 export type Paiement = {
@@ -113,6 +139,7 @@ export type PersonnelRow = {
   notion_id: string;
   nom: string | null;
   role: string | null;
+  specialite: string | null;
   email: string | null;
   actif: boolean;
 };

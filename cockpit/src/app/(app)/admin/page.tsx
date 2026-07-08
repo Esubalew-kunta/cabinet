@@ -6,10 +6,24 @@ import { getPersonnelMap } from "@/lib/data";
 import { Card, CardHeader, CardBody, StatCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { SyncBanner } from "@/components/sync-banner";
-import { formatEuro } from "@/lib/utils";
+import { formatDate, formatEuro } from "@/lib/utils";
 import { tv, type Lang } from "@/lib/i18n/dict";
-import { CreditCard, FolderOpen, ListChecks, RefreshCw, Settings2, Users, Watch } from "lucide-react";
+import { ParametreValeur } from "@/components/interactive";
+import { CreditCard, FileText, FolderOpen, ListChecks, RefreshCw, Settings2, SlidersHorizontal, Users, Watch } from "lucide-react";
 import type { SyncRun } from "@/lib/types";
+
+type Rapport = {
+  notion_id: string;
+  titre: string | null;
+  type: string | null;
+  date_rapport: string | null;
+  a_lire: number | null;
+  a_envoyer: number | null;
+  appareils_en_retard: number | null;
+  paiements_a_relancer: number | null;
+  dossiers_a_valider: number | null;
+};
+type Parametre = { notion_id: string; parametre: string | null; valeur: string | null; description: string | null };
 
 function CountList({ counts, lang, emptyLabel }: { counts: Map<string, number>; lang: Lang; emptyLabel: string }) {
   const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -38,14 +52,17 @@ export default async function AdminPage() {
   const supa = await supabaseServer();
   const personnelMap = await getPersonnelMap();
 
-  const [patients, dossiers, examens, paiements, taches, syncRuns] = await Promise.all([
+  const [patients, dossiers, examens, paiements, taches, syncRuns, rapports, parametres] = await Promise.all([
     supa.from("patients").select("notion_id, statut, probleme_principal").then((r) => r.data ?? []),
     supa.from("dossiers").select("notion_id, statut_intake").then((r) => r.data ?? []),
     supa.from("examens").select("notion_id, statut_appareil").then((r) => r.data ?? []),
     supa.from("paiements").select("notion_id, statut_paiement, montant_du, montant_paye").then((r) => r.data ?? []),
     supa.from("taches").select("notion_id, statut, responsable").neq("statut", "Terminé").then((r) => r.data ?? []),
     supa.from("sync_runs").select("*").order("started_at", { ascending: false }).limit(5).then((r) => (r.data ?? []) as SyncRun[]),
+    supa.from("rapports").select("*").order("date_rapport", { ascending: false }).limit(6).then((r) => (r.data ?? []) as Rapport[]),
+    supa.from("parametres").select("notion_id, parametre, valeur, description").order("parametre").then((r) => (r.data ?? []) as Parametre[]),
   ]);
+  const isAdmin = session.member.is_owner || session.member.role === "admin";
 
   const patientsActifs = patients.filter((p) => p.statut === "Actif").length;
   const dossiersEnAttente = dossiers.filter((d) => !["Terminé"].includes(d.statut_intake ?? "")).length;
@@ -79,6 +96,69 @@ export default async function AdminPage() {
         <StatCard label={tr.admin.pendingDossiers} value={dossiersEnAttente} tone={dossiersEnAttente > 0 ? "warning" : "default"} />
         <StatCard label={tr.admin.overdueDevices} value={appareilsEnRetard} tone={appareilsEnRetard > 0 ? "danger" : "success"} />
         <StatCard label={tr.admin.totalCollected} value={formatEuro(totalEncaisse, lang)} tone="success" />
+      </div>
+
+      {/* Rapports n8n (C1 quotidien / C2 hebdomadaire) — enfin affichés */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader icon={<FileText />} title={tr.admin.rapportsTitle} subtitle={tr.admin.rapportsSub} />
+          <CardBody>
+            {rapports.length === 0 ? (
+              <p className="text-sm text-muted">{tr.admin.rapportsEmpty}</p>
+            ) : (
+              <ul className="space-y-3">
+                {rapports.map((r) => (
+                  <li key={r.notion_id} className="rounded-lg border border-border bg-background/60 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        {r.type === "Hebdomadaire" ? tr.admin.rapWeekly : tr.admin.rapDaily}
+                        <span className="ml-2 text-xs font-normal text-muted">{formatDate(r.date_rapport, lang)}</span>
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {[
+                        [r.a_lire, tr.admin.rapToRead],
+                        [r.a_envoyer, tr.admin.rapToSend],
+                        [r.dossiers_a_valider, tr.admin.rapToValidate],
+                        [r.appareils_en_retard, tr.admin.rapLate],
+                        [r.paiements_a_relancer, tr.admin.rapToChase],
+                      ]
+                        .filter(([n]) => n !== null && n !== undefined)
+                        .map(([n, label]) => `${n} ${label}`)
+                        .join(" · ")}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Éditeur de Paramètres (tarifs de pénalité, offsets, test_mode) */}
+        <Card>
+          <CardHeader icon={<SlidersHorizontal />} title={tr.admin.paramsTitle} subtitle={tr.admin.paramsSub} />
+          <CardBody>
+            {parametres.length === 0 ? (
+              <p className="text-sm text-muted">{tr.admin.paramsEmpty}</p>
+            ) : (
+              <ul className="max-h-96 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                {parametres.map((p) => (
+                  <li key={p.notion_id} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-xs font-medium">{p.parametre}</p>
+                      {p.description && <p className="truncate text-xs text-muted">{p.description}</p>}
+                    </div>
+                    {isAdmin ? (
+                      <ParametreValeur parametreId={p.notion_id} valeur={p.valeur} />
+                    ) : (
+                      <span className="font-mono text-xs">{p.valeur}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

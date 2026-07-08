@@ -20,6 +20,7 @@ import {
   Stethoscope,
   Syringe,
   Users,
+  Watch,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -30,6 +31,7 @@ const ICONS = {
   patients: Users,
   taches: ListChecks,
   examens: Activity,
+  appareils: Watch,
   perfusions: Syringe,
   finances: CreditCard,
   admin: Settings2,

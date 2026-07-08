@@ -93,6 +93,45 @@ export const SUIVI_PAIEMENT: Record<string, Tone> = {
 
 export const MODES_PAIEMENT = ["Carte", "Espèces", "Chèque", "Virement"] as const;
 
+/** Appareils — inventaire physique (État d'une unité) */
+export const ETAT_APPAREIL_UNITE: Record<string, Tone> = {
+  "Au cabinet": tone("green"),
+  "Dehors": tone("blue"),
+  "Maintenance": tone("yellow"),
+  "Perdu": tone("orange"),
+  "Réformé": tone("gray"),
+};
+
+export const TYPES_APPAREIL = ["Holter rythmique", "Holter tensionnel", "Polygraphie", "Moniteur ECG"] as const;
+
+/** Dossiers — cycle de vie du compte rendu */
+export const STATUT_CR: Record<string, Tone> = {
+  "À rédiger": tone("orange"),
+  "À valider": tone("violet"),
+  "Envoyé": tone("green"),
+};
+
+/** Examens — conduite à tenir (polygraphie) */
+export const CAT_EXAMEN: Record<string, Tone> = {
+  "RAS": tone("green"),
+  "Polysomnographie": tone("violet"),
+  "Mettre une PPC": tone("orange"),
+  "Refaire l'examen": tone("yellow"),
+  "Autre": tone("gray"),
+};
+
+export const SOCIETES_APPAREILLAGE = ["Air+", "Autre"] as const;
+
+/** Vocabulaire des formulaires Dossier (copié des options Notion) */
+export const SOURCES_DOSSIER = ["Téléphone", "WhatsApp", "Doctolib", "Sur place", "Email", "Site web"] as const;
+export const SITES = ["Cardio Check-Up", "Hôpital Américain de Paris"] as const;
+export const MOTIFS_DOSSIER = [
+  "Rythmologie", "Holter", "Hypertension", "Cardiologie préventive", "PGV", "Suivi",
+  "Suivi appareil", "Suivi post-ablation", "Syncope ou vertige", "Gêne thoracique", "Dépistage",
+  "Nutrition/surpoids", "Prévention", "Doppler vasculaire", "Avis chirurgical", "Perfusion", "Post-op", "Autre",
+] as const;
+export const INDICATIONS_EXAMEN = ["FA", "HTA", "ESV", "Palpitations", "SAS", "Syncope", "Autre"] as const;
+
 /** Patients */
 export const STATUT_PATIENT: Record<string, Tone> = {
   "Actif": tone("green"),

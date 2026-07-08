@@ -122,7 +122,11 @@ export default async function MedecinPage({
             <TBody>
               {dossiers.map((d) => (
                 <Tr key={d.notion_id}>
-                  <td className="font-medium">{d.id_dossier ?? EMPTY}</td>
+                  <td>
+                    <Link href={`/dossiers/${d.notion_id}`} className="font-medium text-primary hover:underline">
+                      {d.id_dossier ?? EMPTY}
+                    </Link>
+                  </td>
                   <td>
                     {d.patient?.[0] ? (
                       <Link href={`/patients/${d.patient[0]}`} className="text-primary hover:underline">

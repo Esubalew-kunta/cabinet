@@ -29,8 +29,24 @@ export default async function PatientsPage({
   let query = supa.from("patients").select("*").order("nom");
   if (q) {
     const term = q.trim();
-    if (/^\d+$/.test(term)) query = query.eq("psid", Number(term));
-    else query = query.or(`nom.ilike.%${term}%,nom_complet.ilike.%${term}%`);
+    const digits = term.replace(/\D/g, "");
+    const isNumericTerm = digits.length >= 2 && /^[\d\s.+()-]+$/.test(term);
+    if (isNumericTerm) {
+      // Terme numérique : PSID exact (si court) OU téléphone. On intercale des
+      // jokers entre chaque chiffre pour retrouver un fragment malgré les
+      // espaces/points de la saisie ("612" trouve "+33 6 12 34 56 78").
+      const fuzzy = `%${digits.split("").join("%")}%`;
+      const parts = [
+        `telephone.ilike.${fuzzy}`,
+        `phone.ilike.${fuzzy}`,
+        `phone_1.ilike.${fuzzy}`,
+      ];
+      if (digits.length <= 6) parts.unshift(`psid.eq.${Number(digits)}`);
+      query = query.or(parts.join(","));
+    } else {
+      const raw = `%${term}%`;
+      query = query.or(`nom.ilike.${raw},nom_complet.ilike.${raw}`);
+    }
   }
   const { data } = await query.limit(200);
   const patients = (data ?? []) as Patient[];
@@ -71,7 +87,7 @@ export default async function PatientsPage({
         ) : (
           <Table>
             <THead>
-              <th>PSID</th><th>{tr.patients.colName}</th><th>{tr.patients.colProblem}</th><th>{tr.common.doctor}</th><th>{tr.patients.colVigilance}</th><th>{tr.patients.colNextRdv}</th><th>{tr.common.status}</th><th>Doctolib</th>
+              <th>PSID</th><th>{tr.patients.colName}</th><th>{tr.patients.colBirth}</th><th>{tr.patients.colProblem}</th><th>{tr.common.doctor}</th><th>{tr.patients.colVigilance}</th><th>{tr.patients.colNextRdv}</th><th>{tr.common.status}</th><th>Doctolib</th>
             </THead>
             <TBody>
               {patients.map((p) => (
@@ -82,6 +98,7 @@ export default async function PatientsPage({
                       {p.nom ?? tr.common.nameless}
                     </Link>
                   </td>
+                  <td className="whitespace-nowrap text-xs">{formatDate(p.date_naissance, lang)}</td>
                   <td className="text-xs">{p.probleme_principal ?? EMPTY}</td>
                   <td>
                     {canManage ? (

@@ -15,9 +15,11 @@ import {
   StatutSelect,
   NouvelleTacheButton,
   NouveauPatientButton,
+  NouveauDossierButton,
   EncaisserButton,
   AppareilRenduButton,
 } from "@/components/interactive";
+import { tv } from "@/lib/i18n/dict";
 import { ArrowRight, CalendarClock, ClipboardList, CreditCard, Inbox, ListChecks, TriangleAlert, Watch } from "lucide-react";
 import type { Dossier, Tache, Examen, Paiement } from "@/lib/types";
 
@@ -95,6 +97,12 @@ export default async function SecretariatPage() {
         actions={
           <>
             <NouveauPatientButton medecins={medecins} problemes={problemes} />
+            <NouveauDossierButton
+              patients={[...patientsIndex.values()]
+                .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))
+                .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""))}
+              medecins={medecins}
+            />
             <NouvelleTacheButton personnel={personnel.filter((p) => p.actif)} />
           </>
         }
@@ -108,14 +116,19 @@ export default async function SecretariatPage() {
           ) : (
             <Table>
               <THead>
-                <th>{tr.secretariat.colDossier}</th><th>{tr.common.patient}</th><th>{tr.secretariat.colMotif}</th><th>{tr.common.status}</th><th>{tr.common.priority}</th><th></th>
+                <th>{tr.secretariat.colDossier}</th><th>{tr.common.patient}</th><th>{tr.secretariat.colMotif}</th><th>{tr.dialogs.source}</th><th>{tr.common.status}</th><th>{tr.common.priority}</th><th></th>
               </THead>
               <TBody>
                 {aTraiter.map((d) => (
                   <Tr key={d.notion_id}>
-                    <td className="font-medium">{d.id_dossier ?? EMPTY}</td>
+                    <td>
+                      <Link href={`/dossiers/${d.notion_id}`} className="font-medium text-primary hover:underline">
+                        {d.id_dossier ?? EMPTY}
+                      </Link>
+                    </td>
                     <td>{patientName(d.patient, patientsIndex)}</td>
-                    <td>{d.motif ?? EMPTY}</td>
+                    <td>{tv(lang, d.motif) ?? EMPTY}</td>
+                    <td>{d.source ? <Badge tone="blue">{tv(lang, d.source)}</Badge> : <span className="text-xs text-muted">{EMPTY}</span>}</td>
                     <td>
                       <StatutSelectCell d={d} />
                     </td>
@@ -141,8 +154,12 @@ export default async function SecretariatPage() {
                 {rdvAVenir.map((d) => (
                   <Tr key={d.notion_id}>
                     <td className="whitespace-nowrap font-medium">{formatDate(d.rendez_vous, lang)}</td>
-                    <td>{patientName(d.patient, patientsIndex)}</td>
-                    <td>{d.motif ?? EMPTY}</td>
+                    <td>
+                      <Link href={`/dossiers/${d.notion_id}`} className="text-primary hover:underline">
+                        {patientName(d.patient, patientsIndex)}
+                      </Link>
+                    </td>
+                    <td>{tv(lang, d.motif) ?? EMPTY}</td>
                     <td className="text-xs text-muted">{d.site ?? EMPTY}</td>
                     <td><StatusBadge value={d.statut_intake} map={STATUT_INTAKE} /></td>
                   </Tr>
@@ -164,7 +181,11 @@ export default async function SecretariatPage() {
               <TBody>
                 {infosManquantes.map((d) => (
                   <Tr key={d.notion_id}>
-                    <td className="font-medium">{d.id_dossier ?? EMPTY}</td>
+                    <td>
+                      <Link href={`/dossiers/${d.notion_id}`} className="font-medium text-primary hover:underline">
+                        {d.id_dossier ?? EMPTY}
+                      </Link>
+                    </td>
                     <td>{patientName(d.patient, patientsIndex)}</td>
                     <td>
                       <div className="flex flex-wrap gap-1">

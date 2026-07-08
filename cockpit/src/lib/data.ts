@@ -10,7 +10,7 @@ import type { PersonnelRow, Patient } from "@/lib/types";
 
 export const getPersonnel = cache(async (): Promise<PersonnelRow[]> => {
   const supa = await supabaseServer();
-  const { data } = await supa.from("personnel").select("notion_id, nom, role, email, actif").order("nom");
+  const { data } = await supa.from("personnel").select("notion_id, nom, role, specialite, email, actif").order("nom");
   return (data ?? []) as PersonnelRow[];
 });
 
@@ -24,7 +24,7 @@ export const getPatientsIndex = cache(async (): Promise<Map<string, Patient>> =>
   const { data } = await supa
     .from("patients")
     .select(
-      "notion_id, nom, nom_complet, psid, statut, type_patient, probleme_principal, niveau_vigilance, telephone, phone, phone_1, email, email_1, lien_doctolib, lien_dossier_securise, dernier_rdv, prochain_rdv, rappel_rdv_envoye_le, medecin_assigne, created_time"
+      "notion_id, nom, nom_complet, psid, statut, type_patient, probleme_principal, niveau_vigilance, telephone, phone, phone_1, email, email_1, lien_doctolib, lien_dossier_securise, dernier_rdv, prochain_rdv, rappel_rdv_envoye_le, medecin_assigne, created_time, date_naissance, adresse, notes_secretariat"
     );
   return new Map(((data ?? []) as Patient[]).map((p) => [p.notion_id, p]));
 });

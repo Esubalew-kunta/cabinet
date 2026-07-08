@@ -45,6 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     items.push({ href: "/patients", label: tr.nav.patients, icon: "patients" });
   if (hasTaches) items.push({ href: "/taches", label: tr.nav.taches, icon: "taches", badge: counts.open });
   if (can(session, "examens")) items.push({ href: "/examens", label: tr.nav.examens, icon: "examens" });
+  if (can(session, "examens")) items.push({ href: "/appareils", label: tr.nav.appareils, icon: "appareils" });
   if (can(session, "perfusions")) items.push({ href: "/perfusions", label: tr.nav.perfusions, icon: "perfusions" });
   if (can(session, "finances")) items.push({ href: "/finances", label: tr.nav.finances, icon: "finances" });
   if (can(session, "admin_stats")) items.push({ href: "/admin", label: tr.nav.admin, icon: "admin" });
