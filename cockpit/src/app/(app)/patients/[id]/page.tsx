@@ -9,13 +9,13 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import {
   STATUT_PATIENT, NIVEAU_VIGILANCE, STATUT_INTAKE, STATUT_MEDECIN,
-  STATUT_APPAREIL, STATUT_PAIEMENT, STATUT_TACHE, PRIORITE,
+  STATUT_APPAREIL, STATUT_PAIEMENT,
 } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import { tv } from "@/lib/i18n/dict";
 import { EncaisserButton, ModifierPatientButton, NouveauDossierButton } from "@/components/interactive";
-import { ExternalLink, ArrowLeft, Phone, Mail, MapPin, Cake, StickyNote, FolderOpen, Activity, CreditCard, Syringe, ListChecks } from "lucide-react";
-import type { Patient, Dossier, Examen, Paiement, Perfusion, Tache } from "@/lib/types";
+import { ExternalLink, ArrowLeft, Phone, Mail, MapPin, Cake, StickyNote, FolderOpen, Activity, CreditCard, Syringe } from "lucide-react";
+import type { Patient, Dossier, Examen, Paiement, Perfusion } from "@/lib/types";
 
 export default async function PatientPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -32,7 +32,7 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
   const canSeeAllPayments = can(session, "paiements_all");
   const canSeeOwnPayments = can(session, "paiements_own");
 
-  const [dossiers, examens, paiementsFull, paiementsStatus, perfusions, taches, personnelMap] = await Promise.all([
+  const [dossiers, examens, paiementsFull, paiementsStatus, perfusions, personnelMap] = await Promise.all([
     supa.from("dossiers").select("*").contains("patient", [id]).order("created_time", { ascending: false })
       .then((r) => (r.data ?? []) as Dossier[]),
     supa.from("examens").select("*").contains("patient", [id]).order("date_pose", { ascending: false })
@@ -49,8 +49,6 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
       ? supa.from("perfusions").select("*").contains("patient", [id]).order("date_perfusion", { ascending: false })
           .then((r) => (r.data ?? []) as Perfusion[])
       : Promise.resolve([] as Perfusion[]),
-    supa.from("taches").select("*").contains("patient_lie", [id]).neq("statut", "Terminé")
-      .then((r) => (r.data ?? []) as Tache[]),
     getPersonnelMap(),
   ]);
   const personnel = await getPersonnel();
@@ -270,26 +268,6 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
             </Table>
           </Card>
         )}
-
-        <Card>
-          <CardHeader icon={<ListChecks />} title={tr.patientDetail.tasksTitle} subtitle={tr.patientDetail.tasksSub} />
-          {taches.length === 0 ? <Empty message={tr.patientDetail.tasksEmpty} /> : (
-            <Table>
-              <THead><th>{tr.taches.colTask}</th><th>{tr.patientDetail.colOwner}</th><th>{tr.common.due}</th><th>{tr.common.priority}</th><th>{tr.common.status}</th></THead>
-              <TBody>
-                {taches.map((t) => (
-                  <Tr key={t.notion_id}>
-                    <td className="font-medium">{t.titre}</td>
-                    <td className="text-xs">{personName(t.responsable, personnelMap)}</td>
-                    <td className="whitespace-nowrap">{formatDate(t.echeance, lang)}</td>
-                    <td><StatusBadge value={t.priorite} map={PRIORITE} /></td>
-                    <td><StatusBadge value={t.statut} map={STATUT_TACHE} /></td>
-                  </Tr>
-                ))}
-              </TBody>
-            </Table>
-          )}
-        </Card>
       </div>
     </div>
   );

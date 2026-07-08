@@ -606,7 +606,10 @@ export async function creerAppareil(input: {
 }): Promise<ActionResult> {
   try {
     const session = await getSession();
-    if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
+    // Ajouter un appareil au parc = geste d'inventaire, réservé à l'administration.
+    if (!session.member.is_owner && session.member.role !== "admin") {
+      return { ok: false, error: "Réservé à l'administration" };
+    }
     if (!input.type) return { ok: false, error: "Type requis" };
 
     const num = (input.numero ?? "").trim();
@@ -646,6 +649,54 @@ export async function setEtatAppareil(appareilId: string, etat: string): Promise
     if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
     await notionUpdate(appareilId, { "État": P.select(etat) });
     await supabaseAdmin().from("appareils").update({ etat }).eq("notion_id", appareilId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Interpréter un examen rendu : saisir les résultats, poser la date
+ * d'interprétation (le sort de la file « à interpréter »), et la CAT si PPG.
+ */
+export async function interpreterExamen(
+  examenId: string,
+  input: { resultats?: string | null; cat?: string | null }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
+    const today = new Date().toISOString().slice(0, 10);
+    const patch: Record<string, any> = {
+      "Résultats": P.text(input.resultats ?? null),
+      "Date interprétation": P.date(today),
+    };
+    if (input.cat) patch["CAT"] = P.select(input.cat);
+    await notionUpdate(examenId, patch);
+    await supabaseAdmin()
+      .from("examens")
+      .update({
+        resultats: input.resultats ?? null,
+        date_interpretation: today,
+        ...(input.cat ? { cat: input.cat } : {}),
+      })
+      .eq("notion_id", examenId);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Marquer le compte rendu de l'examen comme envoyé (date d'envoi = aujourd'hui). */
+export async function envoyerExamen(examenId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
+    const today = new Date().toISOString().slice(0, 10);
+    await notionUpdate(examenId, { "Date envoi": P.date(today) });
+    await supabaseAdmin().from("examens").update({ date_envoi: today }).eq("notion_id", examenId);
     refresh();
     return { ok: true };
   } catch (e) {

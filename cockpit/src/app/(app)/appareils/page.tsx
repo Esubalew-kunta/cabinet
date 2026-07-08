@@ -2,28 +2,38 @@ import { redirect } from "next/navigation";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPatientsIndex, patientName } from "@/lib/data";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getPatientsIndex, patientName, getPersonnel } from "@/lib/data";
 import { Card, CardHeader, StatCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/badge";
 import { ETAT_APPAREIL_UNITE, TYPES_APPAREIL } from "@/lib/labels";
-import { formatDate, EMPTY } from "@/lib/utils";
-import { EtatAppareilSelect, NouvelAppareilButton } from "@/components/interactive";
+import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
+import {
+  EtatAppareilSelect,
+  NouvelAppareilButton,
+  NouvelExamenButton,
+  AppareilRenduButton,
+  FacturerPenaliteButton,
+} from "@/components/interactive";
 import { Watch } from "lucide-react";
 import type { Appareil, Examen } from "@/lib/types";
 
 /**
- * L'inventaire physique : répond mot pour mot à la question de la Dre —
- * « Holter rythmique : 5 au total · 2 au cabinet · 3 dehors (1 en retard) ».
+ * Le parc physique et son prêt. L'administration ajoute des appareils ;
+ * le personnel en assigne un (unité libre) à un patient, puis le récupère
+ * et facture les retards. L'interprétation, elle, vit sur la page Examens.
  */
 export default async function AppareilsPage() {
   const session = await getSession();
   if (!can(session, "examens")) redirect(homeFor(session.member));
   const { lang, tr } = await getTr();
+  const isAdmin = session.member.is_owner || session.member.role === "admin";
+  const canBill = can(session, "paiements_all");
 
   const supa = await supabaseServer();
-  const [unites, examens, patientsIndex] = await Promise.all([
+  const [unites, examens, patientsIndex, personnel, fees, penalitesExistantes] = await Promise.all([
     supa.from("appareils").select("*").order("ref_appareil").then((r) => (r.data ?? []) as Appareil[]),
     supa
       .from("examens")
@@ -31,20 +41,37 @@ export default async function AppareilsPage() {
       .in("statut_appareil", ["Remis", "Bientôt dû", "En retard"])
       .then((r) => (r.data ?? []) as Examen[]),
     getPatientsIndex(),
+    getPersonnel(),
+    supabaseAdmin().from("parametres").select("parametre, valeur")
+      .in("parametre", ["late_fee_holter", "late_fee_polygraphie"])
+      .then((r) => new Map((r.data ?? []).map((p) => [p.parametre, Number(p.valeur)]))),
+    canBill
+      ? supa.from("paiements").select("examen").eq("type_prestation", "Pénalité retard")
+          .then((r) => new Set(((r.data ?? []) as { examen: string[] | null }[]).flatMap((p) => p.examen ?? [])))
+      : Promise.resolve(new Set<string>()),
   ]);
 
-  // examen en cours par unité (via la relation portée par l'examen)
   const examByUnit = new Map<string, Examen>();
   for (const e of examens) for (const uniteId of e.appareil ?? []) examByUnit.set(uniteId, e);
 
   const now = Date.now();
-  const lateDays = (e: Examen | undefined): number => {
-    if (!e?.restitution_prevue) return 0;
-    return Math.max(0, Math.floor((now - new Date(e.restitution_prevue).getTime()) / 86_400_000));
+  const penalty = (e: Examen | undefined): { days: number; amount: number } | null => {
+    if (!e?.restitution_prevue) return null;
+    const days = Math.floor((now - new Date(e.restitution_prevue).getTime()) / 86_400_000);
+    if (days <= 0) return null;
+    const isPgv = (e.type ?? "").includes("Polygraphie");
+    const rate = fees.get(isPgv ? "late_fee_polygraphie" : "late_fee_holter") ?? (isPgv ? 100 : 150);
+    return { days, amount: days * rate };
   };
 
   const types = [...TYPES_APPAREIL.filter((t) => unites.some((u) => u.type === t)),
     ...[...new Set(unites.map((u) => u.type))].filter((t): t is string => Boolean(t) && !TYPES_APPAREIL.includes(t as (typeof TYPES_APPAREIL)[number]))];
+
+  const medecins = personnel.filter((p) => p.role === "Médecin" && p.actif);
+  const patientsList = [...patientsIndex.values()]
+    .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))
+    .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""));
+  const libres = unites.map((u) => ({ notion_id: u.notion_id, ref_appareil: u.ref_appareil, type: u.type, etat: u.etat }));
 
   return (
     <div className="space-y-4">
@@ -52,7 +79,17 @@ export default async function AppareilsPage() {
         icon={<Watch />}
         title={tr.appareils.title}
         subtitle={tr.appareils.subtitle}
-        actions={<NouvelAppareilButton />}
+        actions={
+          <>
+            <NouvelExamenButton
+              patients={patientsList}
+              interpretes={medecins}
+              unites={libres}
+              label={tr.appareils.assignDevice}
+            />
+            {isAdmin && <NouvelAppareilButton />}
+          </>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -60,7 +97,7 @@ export default async function AppareilsPage() {
           const ofType = unites.filter((u) => u.type === t);
           const cabinet = ofType.filter((u) => u.etat === "Au cabinet").length;
           const dehors = ofType.filter((u) => u.etat === "Dehors");
-          const late = dehors.filter((u) => lateDays(examByUnit.get(u.notion_id)) > 0).length;
+          const late = dehors.filter((u) => penalty(examByUnit.get(u.notion_id))).length;
           return (
             <StatCard
               key={t}
@@ -80,12 +117,13 @@ export default async function AppareilsPage() {
         ) : (
           <Table>
             <THead>
-              <th>{tr.appareils.colUnit}</th><th>{tr.common.type}</th><th>{tr.appareils.colNumber}</th><th>{tr.appareils.colState}</th><th>{tr.appareils.colWith}</th><th>{tr.appareils.colDue}</th><th>{tr.appareils.colLate}</th>
+              <th>{tr.appareils.colUnit}</th><th>{tr.common.type}</th><th>{tr.appareils.colNumber}</th><th>{tr.appareils.colState}</th><th>{tr.appareils.colWith}</th><th>{tr.appareils.colDue}</th><th>{tr.examens.colPenalty}</th><th></th>
             </THead>
             <TBody>
               {unites.map((u) => {
                 const exam = u.etat === "Dehors" ? examByUnit.get(u.notion_id) : undefined;
-                const late = lateDays(exam);
+                const pen = penalty(exam);
+                const dejaFacturee = exam ? penalitesExistantes.has(exam.notion_id) : false;
                 return (
                   <Tr key={u.notion_id}>
                     <td className="font-medium">{u.ref_appareil ?? EMPTY}</td>
@@ -99,8 +137,24 @@ export default async function AppareilsPage() {
                     </td>
                     <td>{exam ? patientName(exam.patient, patientsIndex) : EMPTY}</td>
                     <td className="whitespace-nowrap">{exam ? formatDate(exam.restitution_prevue, lang) : EMPTY}</td>
-                    <td className={late > 0 ? "font-semibold text-danger" : "text-muted"}>
-                      {late > 0 ? tr.appareils.lateDays(late) : EMPTY}
+                    <td>
+                      {pen ? (
+                        <span className="whitespace-nowrap text-xs font-semibold text-danger">
+                          {tr.examens.penaltyDays(pen.days, formatEuro(pen.amount, lang))}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted">{EMPTY}</span>
+                      )}
+                    </td>
+                    <td>
+                      {exam && (
+                        <div className="flex items-center gap-2">
+                          <AppareilRenduButton examenId={exam.notion_id} />
+                          {canBill && pen && !dejaFacturee && (
+                            <FacturerPenaliteButton examenId={exam.notion_id} days={pen.days} amount={formatEuro(pen.amount, lang)} />
+                          )}
+                        </div>
+                      )}
                     </td>
                   </Tr>
                 );

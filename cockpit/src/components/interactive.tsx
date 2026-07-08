@@ -27,7 +27,7 @@ import {
 import { RECURRENCE, tv } from "@/lib/i18n/dict";
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
-import { Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, Link2, Pencil, Plus, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
+import { Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, Link2, Microscope, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
 import {
   verifierDossier,
   setStatutIntake,
@@ -50,6 +50,8 @@ import {
   creerExamen,
   creerAppareil,
   setEtatAppareil,
+  interpreterExamen,
+  envoyerExamen,
   setCAT,
   majAppareillage,
   facturerPenalite,
@@ -913,11 +915,13 @@ export function NouvelExamenButton({
   interpretes,
   unites,
   defaultPatient,
+  label,
 }: {
   patients: { notion_id: string; nom: string | null }[];
   interpretes: { notion_id: string; nom: string | null }[];
   unites: Pick<Appareil, "notion_id" | "ref_appareil" | "type" | "etat">[];
   defaultPatient?: string;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -959,9 +963,9 @@ export function NouvelExamenButton({
   return (
     <>
       <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
-        <Plus className="size-3.5" /> {tr.examens.newExam}
+        <Plus className="size-3.5" /> {label ?? tr.examens.newExam}
       </Button>
-      <Dialog open={open} onClose={() => setOpen(false)} title={tr.examens.newExam} icon={<Watch />}>
+      <Dialog open={open} onClose={() => setOpen(false)} title={label ?? tr.examens.newExam} icon={<Watch />}>
         <form onSubmit={submit} className="space-y-3">
           <Field label={tr.common.patient}>
             <Select value={patient} onChange={(e) => setPatient(e.target.value)} required disabled={Boolean(defaultPatient)}>
@@ -1127,6 +1131,70 @@ export function CATSelect({ examenId, value }: { examenId: string; value: string
           <option key={s} value={s}>{tv(lang, s)}</option>
         ))}
       </Select>
+      <ErrorText error={error} />
+    </div>
+  );
+}
+
+/** Modale d'interprétation d'un examen rendu : résultats + CAT (si polygraphie). */
+export function InterpreterButton({ examen }: { examen: Pick<Examen, "notion_id" | "type" | "resultats" | "cat"> }) {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { lang, tr } = useTr();
+  const [resultats, setResultats] = useState(examen.resultats ?? "");
+  const [cat, setCat] = useState(examen.cat ?? "");
+  const isPPG = examen.type === "Polygraphie";
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    run(
+      () => interpreterExamen(examen.notion_id, { resultats: resultats || null, cat: cat || null }),
+      () => setOpen(false),
+      tr.toast.examInterpreted
+    );
+  }
+
+  return (
+    <>
+      <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
+        <Microscope className="size-3.5" /> {tr.examens.interpret}
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={tr.examens.interpret} icon={<Microscope />}>
+        <form onSubmit={submit} className="space-y-3">
+          <Field label={tr.examens.resultsLabel} hint={tr.examens.resultsHint}>
+            <Input value={resultats} onChange={(e) => setResultats(e.target.value)} placeholder={tr.examens.resultsPlaceholder} autoFocus />
+          </Field>
+          {isPPG && (
+            <Field label={tr.examens.colCAT}>
+              <Select value={cat} onChange={(e) => setCat(e.target.value)}>
+                <option value="">{tr.common.empty}</option>
+                {Object.keys(CAT_EXAMEN).map((s) => (
+                  <option key={s} value={s}>{tv(lang, s)}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <p className="text-xs text-muted">{tr.examens.interpretHint}</p>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button type="submit" loading={pending}>{tr.examens.markInterpreted}</Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+/** Marquer le compte rendu envoyé. */
+export function EnvoyerExamenButton({ examenId }: { examenId: string }) {
+  const { pending, error, run } = useAction();
+  const { tr } = useTr();
+  return (
+    <div>
+      <Button size="sm" variant="secondary" loading={pending} onClick={() => run(() => envoyerExamen(examenId), undefined, tr.toast.reportSent)}>
+        <Send className="size-3.5" /> {tr.examens.markSent}
+      </Button>
       <ErrorText error={error} />
     </div>
   );
