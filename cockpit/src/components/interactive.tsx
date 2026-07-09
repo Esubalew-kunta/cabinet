@@ -29,7 +29,8 @@ import {
 import { RECURRENCE, tv } from "@/lib/i18n/dict";
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
-import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Package, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Minus, Package, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   verifierDossier,
   setStatutIntake,
@@ -1831,16 +1832,71 @@ export function HistoriqueArticleButton({
 
 /* ---------- Paramètres (admin) ---------- */
 
+/**
+ * Éditeur de paramètre à contrôle typé : le type est déduit de la valeur —
+ * on/off → interrupteur, nombre → compteur (−/+), sinon → texte. Aucune
+ * migration : Notion et l'app restent identiques automatiquement.
+ */
 export function ParametreValeur({ parametreId, valeur }: { parametreId: string; valeur: string | null }) {
   const { pending, error, run } = useAction();
   const { tr } = useTr();
-  const [v, setV] = useState(valeur ?? "");
-  const dirty = v !== (valeur ?? "");
+  const initial = (valeur ?? "").trim();
+  const isToggle = /^(on|off)$/i.test(initial);
+  const isNumber = !isToggle && /^-?\d+([.,]\d+)?$/.test(initial);
+  const [v, setV] = useState(initial);
+  const dirty = v !== initial;
+  const save = (val: string) => run(() => setParametre(parametreId, val), undefined, tr.toast.saved);
+
+  if (isToggle) {
+    const on = v.toLowerCase() === "on";
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          disabled={pending}
+          onClick={() => { const next = on ? "off" : "on"; setV(next); save(next); }}
+          className={cn(
+            "relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-50",
+            on ? "bg-success" : "bg-border"
+          )}
+        >
+          <span className={cn("inline-block size-4 transform rounded-full bg-white shadow transition-transform", on ? "translate-x-4" : "translate-x-0.5")} />
+        </button>
+        <span className="text-xs text-muted">{on ? tr.common.yes : tr.common.no}</span>
+        <ErrorText error={error} />
+      </div>
+    );
+  }
+
+  if (isNumber) {
+    const num = Number(v.replace(",", ".")) || 0;
+    const setNum = (n: number) => setV(String(Math.max(0, n)));
+    return (
+      <div className="flex items-center gap-1.5">
+        <button type="button" disabled={pending} onClick={() => setNum(num - 1)} className="inline-flex size-7 items-center justify-center rounded-md border border-border bg-surface text-muted hover:text-foreground disabled:opacity-50" aria-label="−">
+          <Minus className="size-3.5" />
+        </button>
+        <Input className="h-7 w-16 text-center text-xs tabular-nums" type="number" min="0" value={v} onChange={(e) => setV(e.target.value)} />
+        <button type="button" disabled={pending} onClick={() => setNum(num + 1)} className="inline-flex size-7 items-center justify-center rounded-md border border-border bg-surface text-muted hover:text-foreground disabled:opacity-50" aria-label="+">
+          <Plus className="size-3.5" />
+        </button>
+        {dirty && (
+          <Button size="sm" variant="secondary" loading={pending} onClick={() => save(v)}>
+            <Check className="size-3.5" />
+          </Button>
+        )}
+        <ErrorText error={error} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
-      <Input className="h-7 w-36 text-xs" value={v} onChange={(e) => setV(e.target.value)} />
+      <Input className="h-7 w-48 text-xs" value={v} onChange={(e) => setV(e.target.value)} />
       {dirty && (
-        <Button size="sm" variant="secondary" loading={pending} onClick={() => run(() => setParametre(parametreId, v), undefined, tr.toast.saved)}>
+        <Button size="sm" variant="secondary" loading={pending} onClick={() => save(v)}>
           <Check className="size-3.5" /> {tr.common.save}
         </Button>
       )}
