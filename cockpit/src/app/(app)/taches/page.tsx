@@ -180,7 +180,9 @@ export default async function TachesPage({
                     {t.statut !== "Terminé" && <TacheTermineeButton tacheId={t.notion_id} statut={t.statut} />}
                   </td>
                   <td className="max-w-64 font-medium">
-                    {t.titre}
+                    <Link href={`/taches/${t.notion_id}`} className="hover:text-primary hover:underline">
+                      {t.titre}
+                    </Link>
                     {isPool(t) && t.statut !== "Terminé" && (
                       <Badge tone="orange" className="ml-2">{tr.taches.poolBadge}</Badge>
                     )}

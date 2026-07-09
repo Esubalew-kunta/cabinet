@@ -42,6 +42,7 @@ import {
   prendreTache,
   supprimerTache,
   creerTache,
+  majTache,
   creerPatient,
   majPatientInfos,
   enregistrerPaiement,
@@ -67,7 +68,7 @@ import {
   setSeuilArticle,
   setParametre,
 } from "@/lib/actions";
-import type { Appareil, Article, Examen, Mouvement, Perfusion } from "@/lib/types";
+import type { Appareil, Article, Examen, Mouvement, Perfusion, Tache } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -312,6 +313,65 @@ export function NouvelleTacheButton({
             <Button type="submit" loading={pending}>
               {tr.dialogs.createTask}
             </Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+/** Édition d'une tâche (titre, échéance, priorité, note) depuis sa fiche. */
+export function ModifierTacheButton({
+  tache,
+}: {
+  tache: Pick<Tache, "notion_id" | "titre" | "echeance" | "priorite" | "note">;
+}) {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { lang, tr } = useTr();
+  const [titre, setTitre] = useState(tache.titre ?? "");
+  const [echeance, setEcheance] = useState(tache.echeance ? tache.echeance.slice(0, 16) : "");
+  const [priorite, setPriorite] = useState(tache.priorite ?? "Normale");
+  const [note, setNote] = useState(tache.note ?? "");
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    run(
+      () => majTache(tache.notion_id, { titre, echeance: echeance || null, priorite, note: note || null }),
+      () => setOpen(false),
+      tr.toast.saved
+    );
+  }
+
+  return (
+    <>
+      <Button size="sm" variant="secondary" onClick={() => { setError(null); setOpen(true); }}>
+        <Pencil className="size-3.5" /> {tr.common.edit}
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={tr.common.edit} icon={<Pencil />}>
+        <form onSubmit={submit} className="space-y-3">
+          <Field label={tr.dialogs.taskTitle}>
+            <Input value={titre} onChange={(e) => setTitre(e.target.value)} required autoFocus />
+          </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.common.due}>
+              <Input type="datetime-local" value={echeance} onChange={(e) => setEcheance(e.target.value)} />
+            </Field>
+            <Field label={tr.common.priority}>
+              <Select value={priorite} onChange={(e) => setPriorite(e.target.value)}>
+                {["Normale", "À revoir", "Urgent"].map((p) => (
+                  <option key={p} value={p}>{tv(lang, p)}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label={tr.dialogs.noteField}>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr.dialogs.notePlaceholder} />
+          </Field>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button type="submit" loading={pending}>{tr.common.save}</Button>
           </div>
         </form>
       </Dialog>

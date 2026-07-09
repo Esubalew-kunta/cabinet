@@ -413,6 +413,38 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
   }
 }
 
+/** Édition d'une tâche (titre, échéance, priorité, note) — rien n'est figé. */
+export async function majTache(
+  tacheId: string,
+  input: { titre?: string | null; echeance?: string | null; priorite?: string | null; note?: string | null }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
+    const patch: Record<string, any> = {
+      "Échéance": P.date(input.echeance ?? null),
+      "Priorité": P.select(input.priorite ?? "Normale"),
+      "Note": P.text(input.note ?? null),
+    };
+    if (input.titre && input.titre.trim()) patch["Titre"] = P.title(input.titre.trim());
+    await notionUpdate(tacheId, patch);
+    await supabaseAdmin()
+      .from("taches")
+      .update({
+        ...(input.titre && input.titre.trim() ? { titre: input.titre.trim() } : {}),
+        echeance: input.echeance || null,
+        priorite: input.priorite ?? "Normale",
+        note: input.note || null,
+      })
+      .eq("notion_id", tacheId);
+    await logAudit(session, { action: "update", area: "taches", targetId: tacheId });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 export async function reassignerTache(tacheId: string, personnelId: string): Promise<ActionResult> {
   try {
     const session = await getSession();
