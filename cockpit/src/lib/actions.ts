@@ -333,6 +333,7 @@ export async function creerTache(input: {
   domaine?: string | null;
   calendrier?: string | null;
   recurrence?: string | null;
+  note?: string | null;
   responsable?: string | null; // personnel notion id
   patient?: string | null;
   dossier?: string | null;
@@ -366,6 +367,7 @@ export async function creerTache(input: {
     };
     if (input.echeance) props["Échéance"] = P.date(input.echeance);
     if (input.recurrence && input.calendrier === "Récurrente") props["Récurrence"] = P.select(input.recurrence);
+    if (input.note) props["Note"] = P.text(input.note);
     if (responsable) props["Responsable"] = P.relation([responsable]);
     if (session.member.personnel_notion_id) props["Créé par"] = P.relation([session.member.personnel_notion_id]);
     if (input.patient) props["Patient lié"] = P.relation([input.patient]);
@@ -382,6 +384,7 @@ export async function creerTache(input: {
       echeance: input.echeance ?? null,
       priorite: input.priorite ?? "Normale",
       domaine: input.domaine ?? "Clinique",
+      note: input.note ?? null,
       responsable: responsable ? [responsable] : [],
       cree_par: session.member.personnel_notion_id ? [session.member.personnel_notion_id] : [],
       patient_lie: input.patient ? [input.patient] : [],

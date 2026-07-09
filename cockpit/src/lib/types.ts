@@ -64,6 +64,7 @@ export type Tache = {
   priorite: string | null;
   domaine: string | null;
   note_cloture: string | null;
+  note: string | null;
   responsable: string[];
   cree_par: string[];
   patient_lie: string[];

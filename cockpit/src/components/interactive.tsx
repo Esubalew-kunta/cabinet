@@ -27,7 +27,7 @@ import {
   CATEGORIES_STOCK,
   UNITES_STOCK,
 } from "@/lib/labels";
-import { RECURRENCE, tv } from "@/lib/i18n/dict";
+import { tv } from "@/lib/i18n/dict";
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Minus, Package, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
@@ -212,9 +212,7 @@ export function NouvelleTacheButton({
   const [titre, setTitre] = useState("");
   const [echeance, setEcheance] = useState("");
   const [priorite, setPriorite] = useState("Normale");
-  const [domaine, setDomaine] = useState("Clinique");
-  const [calendrier, setCalendrier] = useState("Ponctuelle");
-  const [recurrence, setRecurrence] = useState("weekly");
+  const [note, setNote] = useState("");
   // Propriétaire par défaut = Dr Amraoui (owner) : présélectionnée si connue,
   // sinon on retombe sur l'option vide que le serveur résout vers l'owner.
   const owner = ownerId ? personnel.find((p) => p.notion_id === ownerId) : undefined;
@@ -229,9 +227,7 @@ export function NouvelleTacheButton({
           titre,
           echeance: echeance || null,
           priorite,
-          domaine,
-          calendrier,
-          recurrence: calendrier === "Récurrente" ? recurrence : null,
+          note: note || null,
           responsable: responsable || null,
           patient: patient || null,
           dossier: defaultDossier || null,
@@ -240,6 +236,7 @@ export function NouvelleTacheButton({
         setOpen(false);
         setTitre("");
         setEcheance("");
+        setNote("");
       },
       tr.toast.taskCreated
     );
@@ -266,31 +263,6 @@ export function NouvelleTacheButton({
                 ))}
               </Select>
             </Field>
-            <Field label={tr.dialogs.domain}>
-              <Select value={domaine} onChange={(e) => setDomaine(e.target.value)}>
-                {["Clinique", "Professionnel", "Personnel", "Projets"].map((d) => (
-                  <option key={d} value={d}>{tv(lang, d)}</option>
-                ))}
-              </Select>
-            </Field>
-            <Field label={tr.common.type}>
-              <Select value={calendrier} onChange={(e) => setCalendrier(e.target.value)}>
-                {["Ponctuelle", "Récurrente"].map((c) => (
-                  <option key={c} value={c}>{tv(lang, c)}</option>
-                ))}
-              </Select>
-            </Field>
-            {calendrier === "Récurrente" && (
-              <Field label={tr.dialogs.recurrence}>
-                <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
-                  {Object.entries(RECURRENCE[lang]).map(([v, l]) => (
-                    <option key={v} value={v}>
-                      {l}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            )}
             <Field label={tr.dialogs.ownerField} hint={tr.dialogs.ownerHint}>
               <Select value={responsable} onChange={(e) => setResponsable(e.target.value)}>
                 {owner ? (
@@ -329,6 +301,9 @@ export function NouvelleTacheButton({
               </Field>
             )}
           </div>
+          <Field label={tr.dialogs.noteField}>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr.dialogs.notePlaceholder} />
+          </Field>
           <ErrorText error={error} />
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>

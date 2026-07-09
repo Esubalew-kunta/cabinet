@@ -94,6 +94,7 @@ export const SOURCES: SourceSpec[] = [
       { prop: "Priorité", column: "priorite", kind: "select" },
       { prop: "Domaine", column: "domaine", kind: "select" },
       { prop: "Note de clôture", column: "note_cloture", kind: "rich_text" },
+      { prop: "Note", column: "note", kind: "rich_text" },
       { prop: "Événement agenda", column: "evenement_agenda", kind: "rich_text" },
       { prop: "Notifier", column: "notifier", kind: "checkbox" },
       { prop: "Notifié le", column: "notifie_le", kind: "date" },
