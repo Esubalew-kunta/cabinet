@@ -142,6 +142,12 @@ export const STATUT_STOCK: Record<string, Tone> = {
   "Rupture": tone("red"),
 };
 
+/** Abonnés — Statut liste de diffusion */
+export const STATUT_ABONNE: Record<string, Tone> = {
+  "Actif": tone("green"),
+  "Désabonné": tone("gray"),
+};
+
 /** Patients */
 export const STATUT_PATIENT: Record<string, Tone> = {
   "Actif": tone("green"),

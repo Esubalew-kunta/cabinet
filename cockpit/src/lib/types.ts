@@ -158,6 +158,16 @@ export type Mouvement = {
   date_mouvement: string | null;
 };
 
+export type Abonne = {
+  notion_id: string;
+  nom: string | null;
+  prenom: string | null;
+  email: string | null;
+  statut: string | null;
+  source: string | null;
+  date_inscription: string | null;
+};
+
 export type PersonnelRow = {
   notion_id: string;
   nom: string | null;

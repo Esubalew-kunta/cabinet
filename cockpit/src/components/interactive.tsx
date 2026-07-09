@@ -183,11 +183,13 @@ export function NouvelleTacheButton({
   patients,
   defaultPatient,
   defaultDossier,
+  ownerId,
 }: {
   personnel: { notion_id: string; nom: string | null }[];
   patients?: { notion_id: string; nom: string | null }[];
   defaultPatient?: string;
   defaultDossier?: string;
+  ownerId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -198,7 +200,10 @@ export function NouvelleTacheButton({
   const [domaine, setDomaine] = useState("Clinique");
   const [calendrier, setCalendrier] = useState("Ponctuelle");
   const [recurrence, setRecurrence] = useState("weekly");
-  const [responsable, setResponsable] = useState("");
+  // Propriétaire par défaut = Dr Amraoui (owner) : présélectionnée si connue,
+  // sinon on retombe sur l'option vide que le serveur résout vers l'owner.
+  const owner = ownerId ? personnel.find((p) => p.notion_id === ownerId) : undefined;
+  const [responsable, setResponsable] = useState(owner ? owner.notion_id : "");
   const [patient, setPatient] = useState(defaultPatient ?? "");
 
   function submit(e: React.FormEvent) {
@@ -273,12 +278,27 @@ export function NouvelleTacheButton({
             )}
             <Field label={tr.dialogs.ownerField} hint={tr.dialogs.ownerHint}>
               <Select value={responsable} onChange={(e) => setResponsable(e.target.value)}>
-                <option value="">{tr.dialogs.ownerDefault}</option>
-                {personnel.map((p) => (
-                  <option key={p.notion_id} value={p.notion_id}>
-                    {p.nom}
-                  </option>
-                ))}
+                {owner ? (
+                  <>
+                    <option value={owner.notion_id}>{owner.nom} {tr.dialogs.ownerDefaultSuffix}</option>
+                    {personnel
+                      .filter((p) => p.notion_id !== owner.notion_id)
+                      .map((p) => (
+                        <option key={p.notion_id} value={p.notion_id}>
+                          {p.nom}
+                        </option>
+                      ))}
+                  </>
+                ) : (
+                  <>
+                    <option value="">{tr.dialogs.ownerDefault}</option>
+                    {personnel.map((p) => (
+                      <option key={p.notion_id} value={p.notion_id}>
+                        {p.nom}
+                      </option>
+                    ))}
+                  </>
+                )}
               </Select>
             </Field>
             {patients && (

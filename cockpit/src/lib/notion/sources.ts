@@ -256,4 +256,16 @@ export const SOURCES: SourceSpec[] = [
       { prop: "Priorité", column: "priorite", kind: "select" },
     ],
   },
+  {
+    table: "abonnes",
+    dataSourceId: "b10ac025-1beb-4878-8166-3f0ae4176292",
+    props: [
+      { prop: "Nom", column: "nom", kind: "title" },
+      { prop: "Prénom", column: "prenom", kind: "rich_text" },
+      { prop: "Email", column: "email", kind: "email" },
+      { prop: "Statut", column: "statut", kind: "select" },
+      { prop: "Source", column: "source", kind: "select" },
+      { prop: "Date d'inscription", column: "date_inscription", kind: "date" },
+    ],
+  },
 ];

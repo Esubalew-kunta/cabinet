@@ -111,7 +111,7 @@ export default async function TachesPage({
         icon={<ListChecks />}
         title={tr.taches.title}
         subtitle={tr.taches.subtitle}
-        actions={<NouvelleTacheButton personnel={actifs} patients={patientsList} />}
+        actions={<NouvelleTacheButton personnel={actifs} patients={patientsList} ownerId={ownerId} />}
       />
 
       <div className="flex flex-wrap items-center gap-2">
