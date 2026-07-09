@@ -7,7 +7,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
-import { CAT_EXAMEN } from "@/lib/labels";
+import { CAT_EXAMEN, CONCLUSION_EXAMEN } from "@/lib/labels";
 import { formatDate, EMPTY } from "@/lib/utils";
 import { InterpreterButton, EnvoyerExamenButton, AppareillageButton } from "@/components/interactive";
 import { Activity, Microscope, Send, Stethoscope } from "lucide-react";
@@ -77,7 +77,7 @@ export default async function ExamensPage() {
         ) : (
           <Table>
             <THead>
-              <th>{tr.common.reference}</th><th>{tr.common.patient}</th><th>{tr.common.type}</th><th>{tr.examens.resultsLabel}</th><th>{tr.examens.colCAT}</th><th></th>
+              <th>{tr.common.reference}</th><th>{tr.common.patient}</th><th>{tr.common.type}</th><th>{tr.examens.resultsLabel}</th><th>{tr.examens.conclusionLabel}</th><th>{tr.examens.colCAT}</th><th></th>
             </THead>
             <TBody>
               {aEnvoyer.map((e) => (
@@ -86,8 +86,14 @@ export default async function ExamensPage() {
                   <td>{patientName(e.patient, patientsIndex)}</td>
                   <td className="text-xs">{e.type ?? EMPTY}</td>
                   <td className="max-w-56 truncate text-xs" title={e.resultats ?? ""}>{e.resultats ?? EMPTY}</td>
+                  <td>{e.conclusion ? <StatusBadge value={e.conclusion} map={CONCLUSION_EXAMEN} /> : EMPTY}</td>
                   <td>{e.cat ? <StatusBadge value={e.cat} map={CAT_EXAMEN} /> : EMPTY}</td>
-                  <td><EnvoyerExamenButton examenId={e.notion_id} /></td>
+                  <td>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <InterpreterButton examen={e} edit />
+                      <EnvoyerExamenButton examenId={e.notion_id} />
+                    </div>
+                  </td>
                 </Tr>
               ))}
             </TBody>

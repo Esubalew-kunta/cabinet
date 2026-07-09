@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnel, getPatientsIndex, patientName, isSoignant } from "@/lib/data";
+import { getPersonnel, getPatientsIndex, patientName, isSoignant, getOwnerPersonnelId } from "@/lib/data";
 import { Card, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
@@ -31,7 +31,7 @@ export default async function SecretariatPage() {
   const supa = await supabaseServer();
   const today = new Date().toISOString();
 
-  const [aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex] =
+  const [aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex, ownerId] =
     await Promise.all([
       supa
         .from("dossiers")
@@ -79,6 +79,7 @@ export default async function SecretariatPage() {
         .then((r) => (r.data ?? []) as Paiement[]),
       getPersonnel(),
       getPatientsIndex(),
+      getOwnerPersonnelId(),
     ]);
 
   const medecins = personnel.filter(isSoignant);
@@ -102,6 +103,7 @@ export default async function SecretariatPage() {
                 .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))
                 .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""))}
               medecins={medecins}
+              ownerId={ownerId}
             />
             <NouvelleTacheButton personnel={personnel.filter((p) => p.actif)} />
           </>

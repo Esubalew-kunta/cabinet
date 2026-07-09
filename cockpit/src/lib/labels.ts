@@ -112,6 +112,13 @@ export const STATUT_CR: Record<string, Tone> = {
 };
 
 /** Examens — conduite à tenir (polygraphie) */
+export const CONCLUSION_EXAMEN: Record<string, Tone> = {
+  "Normal": tone("green"),
+  "Anormal": tone("red"),
+  "À revoir": tone("orange"),
+  "Incomplet": tone("yellow"),
+};
+
 export const CAT_EXAMEN: Record<string, Tone> = {
   "RAS": tone("green"),
   "Polysomnographie": tone("violet"),

@@ -22,6 +22,7 @@ import {
   SOCIETES_APPAREILLAGE,
   ETAT_APPAREIL_UNITE,
   CAT_EXAMEN,
+  CONCLUSION_EXAMEN,
   STATUT_CR,
   CATEGORIES_STOCK,
   UNITES_STOCK,
@@ -33,6 +34,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, 
 import { cn } from "@/lib/utils";
 import {
   verifierDossier,
+  devérifierDossier,
   setStatutIntake,
   setStatutMedecin,
   setStatutTache,
@@ -95,19 +97,30 @@ export function ErrorText({ error }: { error: string | null }) {
 
 /* ---------- Dossiers ---------- */
 
-export function VerifierDossierButton({ dossierId }: { dossierId: string }) {
+export function VerifierDossierButton({ dossierId, verified }: { dossierId: string; verified?: boolean }) {
   const { pending, error, run } = useAction();
   const { tr } = useTr();
   return (
     <div>
-      <Button
-        size="sm"
-        variant="success"
-        loading={pending}
-        onClick={() => run(() => verifierDossier(dossierId), undefined, tr.toast.dossierVerified)}
-      >
-        <CheckCheck className="size-3.5" /> {tr.dialogs.verify}
-      </Button>
+      {verified ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={pending}
+          onClick={() => run(() => devérifierDossier(dossierId), undefined, tr.toast.saved)}
+        >
+          <CheckCheck className="size-3.5" /> {tr.dialogs.unverify}
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="success"
+          loading={pending}
+          onClick={() => run(() => verifierDossier(dossierId), undefined, tr.toast.dossierVerified)}
+        >
+          <CheckCheck className="size-3.5" /> {tr.dialogs.verify}
+        </Button>
+      )}
       <ErrorText error={error} />
     </div>
   );
@@ -762,23 +775,28 @@ export function NouveauDossierButton({
   defaultPatient,
   parentDossier,
   variant = "primary",
+  ownerId,
 }: {
   patients: { notion_id: string; nom: string | null }[];
   medecins: { notion_id: string; nom: string | null; specialite?: string | null }[];
   defaultPatient?: string;
   parentDossier?: string;
   variant?: "primary" | "secondary";
+  ownerId?: string | null; // médecin par défaut (Dr Amraoui)
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { lang, tr } = useTr();
+  // Médecin par défaut = Dr Amraoui (owner) si sa fiche est dans la liste.
+  const defaultMedecin = ownerId && medecins.some((m) => m.notion_id === ownerId) ? ownerId : "";
   const [patient, setPatient] = useState(defaultPatient ?? "");
   const [motif, setMotif] = useState(parentDossier ? "Avis chirurgical" : "Rythmologie");
   const [source, setSource] = useState("Téléphone");
   const [site, setSite] = useState<string>(SITES[0]);
   const [rdv, setRdv] = useState("");
   const [resume, setResume] = useState("");
-  const [medecin, setMedecin] = useState("");
+  const [medecin, setMedecin] = useState(defaultMedecin);
+  const [verifie, setVerifie] = useState(false);
 
   const isReferral = Boolean(parentDossier);
   const title = isReferral ? tr.dossierDetail.referral : tr.dialogs.newDossier;
@@ -796,10 +814,11 @@ export function NouveauDossierButton({
           resume: resume || null,
           medecin: medecin || null,
           dossier_parent: parentDossier || null,
+          verifie,
         }),
       () => {
         setOpen(false);
-        setRdv(""); setResume("");
+        setRdv(""); setResume(""); setVerifie(false);
       },
       tr.toast.dossierCreated
     );
@@ -862,6 +881,22 @@ export function NouveauDossierButton({
           <Field label={tr.dialogs.summary}>
             <Input value={resume} onChange={(e) => setResume(e.target.value)} placeholder={tr.dialogs.summaryPlaceholder} />
           </Field>
+          {/* Bascule Vérifié : off = en attente (secrétaire seule), on = visible au médecin */}
+          <label className="flex items-start gap-3 rounded-lg border border-border bg-surface/60 p-3 text-sm">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={verifie}
+              onClick={() => setVerifie((v) => !v)}
+              className={cn("relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors", verifie ? "bg-success" : "bg-border")}
+            >
+              <span className={cn("inline-block size-4 transform rounded-full bg-white shadow transition-transform", verifie ? "translate-x-4" : "translate-x-0.5")} />
+            </button>
+            <span>
+              <span className="font-medium">{tr.dialogs.markVerified}</span>
+              <span className="mt-0.5 block text-xs text-muted">{verifie ? tr.dialogs.verifiedOn : tr.dialogs.verifiedOff}</span>
+            </span>
+          </label>
           <ErrorText error={error} />
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
@@ -1177,18 +1212,26 @@ export function CATSelect({ examenId, value }: { examenId: string; value: string
 }
 
 /** Modale d'interprétation d'un examen rendu : résultats + CAT (si polygraphie). */
-export function InterpreterButton({ examen }: { examen: Pick<Examen, "notion_id" | "type" | "resultats" | "cat"> }) {
+export function InterpreterButton({
+  examen,
+  edit,
+}: {
+  examen: Pick<Examen, "notion_id" | "type" | "resultats" | "conclusion" | "cat" | "date_interpretation">;
+  edit?: boolean; // affichage « modifier » pour un examen déjà interprété
+}) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { lang, tr } = useTr();
   const [resultats, setResultats] = useState(examen.resultats ?? "");
+  const [conclusion, setConclusion] = useState(examen.conclusion ?? "");
   const [cat, setCat] = useState(examen.cat ?? "");
   const isPPG = examen.type === "Polygraphie";
+  const already = Boolean(examen.date_interpretation);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     run(
-      () => interpreterExamen(examen.notion_id, { resultats: resultats || null, cat: cat || null }),
+      () => interpreterExamen(examen.notion_id, { resultats: resultats || null, conclusion: conclusion || null, cat: cat || null }),
       () => setOpen(false),
       tr.toast.examInterpreted
     );
@@ -1196,29 +1239,64 @@ export function InterpreterButton({ examen }: { examen: Pick<Examen, "notion_id"
 
   return (
     <>
-      <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
-        <Microscope className="size-3.5" /> {tr.examens.interpret}
-      </Button>
+      {edit ? (
+        <button
+          onClick={() => { setError(null); setOpen(true); }}
+          title={tr.examens.editInterpretation}
+          aria-label={tr.examens.editInterpretation}
+          className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-foreground"
+        >
+          <Pencil className="size-4" />
+        </button>
+      ) : (
+        <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
+          <Microscope className="size-3.5" /> {tr.examens.interpret}
+        </Button>
+      )}
       <Dialog open={open} onClose={() => setOpen(false)} title={tr.examens.interpret} icon={<Microscope />}>
         <form onSubmit={submit} className="space-y-3">
           <Field label={tr.examens.resultsLabel} hint={tr.examens.resultsHint}>
-            <Input value={resultats} onChange={(e) => setResultats(e.target.value)} placeholder={tr.examens.resultsPlaceholder} autoFocus />
+            <textarea
+              value={resultats}
+              onChange={(e) => setResultats(e.target.value)}
+              placeholder={tr.examens.resultsPlaceholder}
+              autoFocus
+              rows={4}
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted hover:border-ring/70 focus:outline-2 focus:outline-ring"
+            />
           </Field>
-          {isPPG && (
-            <Field label={tr.examens.colCAT}>
-              <Select value={cat} onChange={(e) => setCat(e.target.value)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.examens.conclusionLabel}>
+              <Select value={conclusion} onChange={(e) => setConclusion(e.target.value)}>
                 <option value="">{tr.common.empty}</option>
-                {Object.keys(CAT_EXAMEN).map((s) => (
+                {Object.keys(CONCLUSION_EXAMEN).map((s) => (
                   <option key={s} value={s}>{tv(lang, s)}</option>
                 ))}
               </Select>
             </Field>
-          )}
+            {isPPG && (
+              <Field label={tr.examens.followUpLabel}>
+                <Select value={cat} onChange={(e) => setCat(e.target.value)}>
+                  <option value="">{tr.common.empty}</option>
+                  {Object.keys(CAT_EXAMEN).map((s) => (
+                    <option key={s} value={s}>{tv(lang, s)}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </div>
           <p className="text-xs text-muted">{tr.examens.interpretHint}</p>
           <ErrorText error={error} />
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
-            <Button type="submit" loading={pending}>{tr.examens.markInterpreted}</Button>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            {already ? (
+              <Button type="button" variant="ghost" loading={pending} onClick={() => run(() => interpreterExamen(examen.notion_id, { clear: true }), () => setOpen(false), tr.toast.saved)}>
+                <Trash2 className="size-3.5" /> {tr.examens.clearInterpretation}
+              </Button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+              <Button type="submit" loading={pending}>{tr.examens.markInterpreted}</Button>
+            </div>
           </div>
         </form>
       </Dialog>

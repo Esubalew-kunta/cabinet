@@ -86,6 +86,7 @@ export type Examen = {
   date_envoi: string | null;
   notes: string | null;
   resultats: string | null;
+  conclusion: string | null;
   patient: string[];
   interprete: string[];
   responsable: string[];

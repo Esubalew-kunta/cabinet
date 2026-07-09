@@ -95,6 +95,29 @@ export async function verifierDossier(dossierId: string): Promise<ActionResult> 
   }
 }
 
+/** Annuler la vérification : le dossier redevient « en attente » (secrétaire seule). */
+export async function devérifierDossier(dossierId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "dossiers_all")) return { ok: false, error: "Accès refusé" };
+    await notionUpdate(dossierId, {
+      "Revue secrétaire": P.multi(["À faire"]),
+      "Visible médecin": P.checkbox(false),
+      "Statut intake": P.select("Nouveau"),
+      "Statut médecin": P.select("Non visible"),
+    });
+    await supabaseAdmin()
+      .from("dossiers")
+      .update({ revue_secretaire: ["À faire"], visible_medecin: false, statut_intake: "Nouveau", statut_medecin: "Non visible" })
+      .eq("notion_id", dossierId);
+    await logAudit(session, { action: "verify", area: "dossiers", targetId: dossierId, detail: { unverified: true } });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 export async function setStatutIntake(dossierId: string, statut: string): Promise<ActionResult> {
   try {
     const session = await getSession();
@@ -142,6 +165,7 @@ export async function creerDossier(input: {
   priorite?: string | null;
   medecin?: string | null;
   dossier_parent?: string | null;
+  verifie?: boolean; // créer déjà vérifié (visible au médecin) au lieu de « en attente »
 }): Promise<ActionResult> {
   try {
     const session = await getSession();
@@ -152,15 +176,17 @@ export async function creerDossier(input: {
     if (!input.motif) return { ok: false, error: "Motif requis" };
 
     const ref = `DOS-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+    // Vérifié (bascule) = visible au médecin ; sinon « en attente », vu de la seule secrétaire.
+    const v = input.verifie === true;
 
     const props: Record<string, any> = {
       "ID Dossier": P.title(ref),
       Patient: P.relation([input.patient]),
       Motif: P.select(input.motif),
-      "Statut intake": P.select("Nouveau"),
-      "Revue secrétaire": P.multi(["À faire"]),
-      "Statut médecin": P.select("Non visible"),
-      "Visible médecin": P.checkbox(false),
+      "Statut intake": P.select(v ? "Prêt" : "Nouveau"),
+      "Revue secrétaire": P.multi([v ? "Vérifié" : "À faire"]),
+      "Statut médecin": P.select(v ? "À lire" : "Non visible"),
+      "Visible médecin": P.checkbox(v),
       Priorité: P.select(input.priorite ?? "Normale"),
     };
     if (input.source) props["Source"] = P.select(input.source);
@@ -183,10 +209,10 @@ export async function creerDossier(input: {
       rendez_vous: input.rendez_vous ?? null,
       resume_motif: input.resume ?? null,
       priorite: input.priorite ?? "Normale",
-      statut_intake: "Nouveau",
-      revue_secretaire: ["À faire"],
-      statut_medecin: "Non visible",
-      visible_medecin: false,
+      statut_intake: v ? "Prêt" : "Nouveau",
+      revue_secretaire: [v ? "Vérifié" : "À faire"],
+      statut_medecin: v ? "À lire" : "Non visible",
+      visible_medecin: v,
       medecin_assigne: input.medecin ? [input.medecin] : [],
       dossier_parent: input.dossier_parent ? [input.dossier_parent] : [],
       created_time: new Date().toISOString(),
@@ -725,27 +751,46 @@ export async function setEtatAppareil(appareilId: string, etat: string): Promise
  */
 export async function interpreterExamen(
   examenId: string,
-  input: { resultats?: string | null; cat?: string | null }
+  input: { resultats?: string | null; conclusion?: string | null; cat?: string | null; clear?: boolean }
 ): Promise<ActionResult> {
   try {
     const session = await getSession();
     if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
     const today = new Date().toISOString().slice(0, 10);
-    const patch: Record<string, any> = {
+
+    // « Effacer » : on retire l'interprétation → l'examen retourne dans la file.
+    if (input.clear) {
+      await notionUpdate(examenId, {
+        "Résultats": P.text(null),
+        "Conclusion": P.select(null),
+        "CAT": P.select(null),
+        "Date interprétation": P.date(null),
+      });
+      await supabaseAdmin()
+        .from("examens")
+        .update({ resultats: null, conclusion: null, cat: null, date_interpretation: null })
+        .eq("notion_id", examenId);
+      await logAudit(session, { action: "interpret", area: "examens", targetId: examenId, detail: { cleared: true } });
+      refresh();
+      return { ok: true };
+    }
+
+    await notionUpdate(examenId, {
       "Résultats": P.text(input.resultats ?? null),
+      "Conclusion": P.select(input.conclusion ?? null),
+      "CAT": P.select(input.cat ?? null),
       "Date interprétation": P.date(today),
-    };
-    if (input.cat) patch["CAT"] = P.select(input.cat);
-    await notionUpdate(examenId, patch);
+    });
     await supabaseAdmin()
       .from("examens")
       .update({
         resultats: input.resultats ?? null,
+        conclusion: input.conclusion ?? null,
+        cat: input.cat ?? null,
         date_interpretation: today,
-        ...(input.cat ? { cat: input.cat } : {}),
       })
       .eq("notion_id", examenId);
-    await logAudit(session, { action: "interpret", area: "examens", targetId: examenId, detail: { cat: input.cat ?? null } });
+    await logAudit(session, { action: "interpret", area: "examens", targetId: examenId, detail: { conclusion: input.conclusion ?? null, cat: input.cat ?? null } });
     refresh();
     return { ok: true };
   } catch (e) {

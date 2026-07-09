@@ -1,7 +1,20 @@
 import { cache } from "react";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { EMPTY } from "@/lib/utils";
 import type { PersonnelRow, Patient } from "@/lib/types";
+
+/** Fiche Personnel du propriétaire (Dr Amraoui) — défaut des responsables/médecins. */
+export const getOwnerPersonnelId = cache(async (): Promise<string | null> => {
+  const { data } = await supabaseAdmin()
+    .from("app_members")
+    .select("personnel_notion_id")
+    .eq("is_owner", true)
+    .not("personnel_notion_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+  return data?.personnel_notion_id ?? null;
+});
 
 /**
  * Petites tables de référence, chargées une fois par requête.

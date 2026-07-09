@@ -118,6 +118,7 @@ export const SOURCES: SourceSpec[] = [
       { prop: "Restitution prévue", column: "restitution_prevue", kind: "date" },
       { prop: "Restitution effective", column: "restitution_effective", kind: "date" },
       { prop: "Date interprétation", column: "date_interpretation", kind: "date" },
+      { prop: "Conclusion", column: "conclusion", kind: "select" },
       { prop: "Date envoi", column: "date_envoi", kind: "date" },
       { prop: "Rappel retour envoyé le", column: "rappel_retour_envoye_le", kind: "date" },
       { prop: "Alerte retard envoyée le", column: "alerte_retard_envoyee_le", kind: "date" },

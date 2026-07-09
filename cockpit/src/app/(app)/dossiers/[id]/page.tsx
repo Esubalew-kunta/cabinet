@@ -117,7 +117,7 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
             icon={isVerified ? <LockKeyholeOpen /> : <LockKeyhole />}
             title={tr.dossierDetail.infoTitle}
             subtitle={isVerified ? tr.dossierDetail.gateOpen : tr.dossierDetail.gateClosed}
-            action={!isVerified && canSecretariat ? <VerifierDossierButton dossierId={dossier.notion_id} /> : undefined}
+            action={canSecretariat ? <VerifierDossierButton dossierId={dossier.notion_id} verified={isVerified} /> : undefined}
           />
           <CardBody className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-3">
