@@ -19,9 +19,10 @@ import {
   OrdonnanceToggle,
   NouveauDossierButton,
   NouvelleTacheButton,
+  NouvelExamenButton,
 } from "@/components/interactive";
 import { Activity, ArrowLeft, CreditCard, ExternalLink, FileText, FolderOpen, GitBranch, ListChecks, LockKeyhole, LockKeyholeOpen } from "lucide-react";
-import type { Dossier, Examen, Paiement, Tache } from "@/lib/types";
+import type { Dossier, Examen, Paiement, Tache, Appareil } from "@/lib/types";
 
 /**
  * Une page par cas : la porte secrétariat, le cycle de vie du compte rendu,
@@ -75,6 +76,12 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
           .then((r) => r.data as Pick<Dossier, "notion_id" | "id_dossier" | "motif"> | null)
       : Promise.resolve(null),
   ]);
+
+  // Parc d'appareils (pour poser un appareil directement depuis le cas)
+  const canAssignDevice = can(session, "examens");
+  const appareils = canAssignDevice
+    ? await supa.from("appareils").select("notion_id, ref_appareil, type, etat").then((r) => (r.data ?? []) as Appareil[])
+    : [];
 
   const medecins = personnel.filter(isSoignant);
   const patients = patient ? [{ notion_id: patient.notion_id, nom: patient.nom }] : [];
@@ -225,7 +232,20 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
 
         {/* Examens du patient */}
         <Card>
-          <CardHeader icon={<Activity />} title={tr.dossierDetail.examsTitle} subtitle={patient?.nom ?? undefined} />
+          <CardHeader
+            icon={<Activity />}
+            title={tr.dossierDetail.examsTitle}
+            subtitle={patient?.nom ?? undefined}
+            action={canAssignDevice && patientId ? (
+              <NouvelExamenButton
+                patients={patients}
+                interpretes={medecins}
+                unites={appareils}
+                defaultPatient={patientId}
+                label={tr.dossierDetail.assignDevice}
+              />
+            ) : undefined}
+          />
           {examens.length === 0 ? (
             <Empty message={tr.patientDetail.examsEmpty} />
           ) : (

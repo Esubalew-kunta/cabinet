@@ -1001,9 +1001,12 @@ export function NouvelExamenButton({
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { lang, tr } = useTr();
-  const [type, setType] = useState<string>(TYPES_APPAREIL[0]);
+  // Unités libres par type ; on démarre sur un type qui a du stock, unité auto-choisie.
+  const freeOf = (t: string) => unites.filter((u) => u.type === t && u.etat === "Au cabinet");
+  const initialType = TYPES_APPAREIL.find((t) => freeOf(t).length > 0) ?? TYPES_APPAREIL[0];
+  const [type, setType] = useState<string>(initialType);
   const [patient, setPatient] = useState(defaultPatient ?? "");
-  const [unite, setUnite] = useState("");
+  const [unite, setUnite] = useState(freeOf(initialType)[0]?.notion_id ?? "");
   const [indication, setIndication] = useState("");
   const [site, setSite] = useState<string>(SITES[0]);
   const today = new Date().toISOString().slice(0, 10);
@@ -1011,7 +1014,7 @@ export function NouvelExamenButton({
   const [retour, setRetour] = useState("");
   const [interprete, setInterprete] = useState("");
 
-  const libres = unites.filter((u) => u.type === type && u.etat === "Au cabinet");
+  const libres = freeOf(type);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1051,11 +1054,12 @@ export function NouvelExamenButton({
             </Select>
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={tr.common.type}>
-              <Select value={type} onChange={(e) => { setType(e.target.value); setUnite(""); }}>
-                {TYPES_APPAREIL.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
+            <Field label={tr.common.type} hint={tr.examens.availabilityHint}>
+              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t)[0]?.notion_id ?? ""); }}>
+                {TYPES_APPAREIL.map((t) => {
+                  const n = freeOf(t).length;
+                  return <option key={t} value={t} disabled={n === 0}>{t} — {tr.examens.availableCount(n)}</option>;
+                })}
               </Select>
             </Field>
             <Field label={tr.examens.unitLabel} hint={tr.examens.unitHint}>
