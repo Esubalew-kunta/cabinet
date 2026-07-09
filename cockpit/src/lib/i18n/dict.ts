@@ -45,6 +45,7 @@ const fr = {
     no: "Non",
     continue: "Continuer",
     confirmQuestion: "Confirmer ?",
+    edit: "Modifier",
   },
   nav: {
     secretariat: "Secrétariat",
@@ -427,6 +428,7 @@ const fr = {
     colBio: "Bilan bio",
     colFee: "Honoraire IPA",
     newSession: "Nouvelle perfusion",
+    editSession: "Modifier la séance",
     dateLabel: "Date de la séance",
     componentsLabel: "Composants",
     componentsPlaceholder: "Ex. NAD 500, vitamine C…",
@@ -623,6 +625,7 @@ const en: DeepShape<typeof fr> = {
     no: "No",
     continue: "Continue",
     confirmQuestion: "Confirm?",
+    edit: "Edit",
   },
   nav: {
     secretariat: "Front desk",
@@ -1004,6 +1007,7 @@ const en: DeepShape<typeof fr> = {
     colBio: "Bio panel",
     colFee: "IPA fee",
     newSession: "New infusion",
+    editSession: "Edit the session",
     dateLabel: "Session date",
     componentsLabel: "Components",
     componentsPlaceholder: "E.g. NAD 500, vitamin C…",

@@ -9,7 +9,7 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import { tv } from "@/lib/i18n/dict";
-import { NouvellePerfusionButton } from "@/components/interactive";
+import { NouvellePerfusionButton, ModifierPerfusionButton } from "@/components/interactive";
 import { Syringe } from "lucide-react";
 import type { Perfusion } from "@/lib/types";
 
@@ -44,7 +44,7 @@ export default async function PerfusionsPage() {
         ) : (
           <Table>
             <THead>
-              <th>{tr.common.reference}</th><th>{tr.common.patient}</th><th>{tr.common.date}</th><th>{tr.perfusions.colComponents}</th><th>{tr.perfusions.colDuration}</th><th>{tr.perfusions.colBio}</th>{showHonoraires && <th className="text-right">{tr.perfusions.colFee}</th>}
+              <th>{tr.common.reference}</th><th>{tr.common.patient}</th><th>{tr.common.date}</th><th>{tr.perfusions.colComponents}</th><th>{tr.perfusions.colDuration}</th><th>{tr.perfusions.colBio}</th>{showHonoraires && <th className="text-right">{tr.perfusions.colFee}</th>}<th></th>
             </THead>
             <TBody>
               {perfusions.map((p) => (
@@ -56,6 +56,7 @@ export default async function PerfusionsPage() {
                   <td className="text-xs">{p.duree ?? EMPTY}</td>
                   <td>{p.bilan_bio ? <Badge tone={p.bilan_bio === "Oui" ? "green" : "gray"}>{tv(lang, p.bilan_bio)}</Badge> : EMPTY}</td>
                   {showHonoraires && <td className="text-right tabular-nums">{formatEuro(p.honoraire_ipa, lang)}</td>}
+                  <td className="text-right"><ModifierPerfusionButton perfusion={p} /></td>
                 </Tr>
               ))}
             </TBody>

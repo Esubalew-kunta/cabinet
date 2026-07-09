@@ -58,12 +58,13 @@ import {
   majAppareillage,
   facturerPenalite,
   creerPerfusion,
+  majPerfusion,
   creerArticle,
   mouvementStock,
   setSeuilArticle,
   setParametre,
 } from "@/lib/actions";
-import type { Appareil, Article, Examen, Mouvement } from "@/lib/types";
+import type { Appareil, Article, Examen, Mouvement, Perfusion } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -1416,6 +1417,87 @@ export function NouvellePerfusionButton({
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
             <Button type="submit" loading={pending}>{tr.perfusions.createSession}</Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+/** Édition d'une séance de perfusion enregistrée (le patient reste fixe). */
+export function ModifierPerfusionButton({
+  perfusion,
+}: {
+  perfusion: Pick<Perfusion, "notion_id" | "date_perfusion" | "composants" | "duree" | "bilan_bio" | "honoraire_ipa" | "notes">;
+}) {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { lang, tr } = useTr();
+  const [date, setDate] = useState(perfusion.date_perfusion?.slice(0, 10) ?? "");
+  const [composants, setComposants] = useState(perfusion.composants ?? "");
+  const [duree, setDuree] = useState(perfusion.duree ?? "");
+  const [bio, setBio] = useState(perfusion.bilan_bio ?? "");
+  const [hono, setHono] = useState(perfusion.honoraire_ipa != null ? String(perfusion.honoraire_ipa) : "");
+  const [notes, setNotes] = useState(perfusion.notes ?? "");
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    run(
+      () =>
+        majPerfusion(perfusion.notion_id, {
+          date_perfusion: date || null,
+          composants: composants || null,
+          duree: duree || null,
+          bilan_bio: bio || null,
+          honoraire_ipa: hono ? Number(hono) : null,
+          notes: notes || null,
+        }),
+      () => setOpen(false),
+      tr.toast.saved
+    );
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => { setError(null); setOpen(true); }}
+        title={tr.common.edit}
+        aria-label={tr.common.edit}
+        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-foreground"
+      >
+        <Pencil className="size-4" />
+      </button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={tr.perfusions.editSession} icon={<Pencil />}>
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.perfusions.dateLabel}>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </Field>
+            <Field label={tr.perfusions.durationLabel}>
+              <Input value={duree} onChange={(e) => setDuree(e.target.value)} placeholder={tr.perfusions.durationPlaceholder} />
+            </Field>
+            <Field label={tr.perfusions.bioLabel}>
+              <Select value={bio} onChange={(e) => setBio(e.target.value)}>
+                <option value="">{tr.common.empty}</option>
+                {["Oui", "Non"].map((b) => (
+                  <option key={b} value={b}>{tv(lang, b)}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={tr.perfusions.feeLabel}>
+              <Input type="number" step="1" min="0" value={hono} onChange={(e) => setHono(e.target.value)} placeholder="150" />
+            </Field>
+          </div>
+          <Field label={tr.perfusions.componentsLabel}>
+            <Input value={composants} onChange={(e) => setComposants(e.target.value)} placeholder={tr.perfusions.componentsPlaceholder} />
+          </Field>
+          <Field label={tr.dialogs.secretaryNotes}>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button type="submit" loading={pending}>{tr.common.save}</Button>
           </div>
         </form>
       </Dialog>

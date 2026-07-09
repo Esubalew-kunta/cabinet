@@ -1084,6 +1084,49 @@ export async function creerPerfusion(input: {
       await notionUpdate(perfusionId, { Paiement: P.relation([payId]) });
       await admin.from("perfusions").update({ paiement: [payId] }).eq("notion_id", perfusionId);
     }
+    await logAudit(session, { action: "create", area: "perfusions", targetId: perfusionId, targetLabel: ref });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Édition d'une séance de perfusion enregistrée (rien n'est figé). */
+export async function majPerfusion(
+  perfusionId: string,
+  input: {
+    date_perfusion?: string | null;
+    composants?: string | null;
+    duree?: string | null;
+    bilan_bio?: string | null;
+    honoraire_ipa?: number | null;
+    notes?: string | null;
+  }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "perfusions")) return { ok: false, error: "Accès refusé" };
+    await notionUpdate(perfusionId, {
+      "Date de perfusion": P.date(input.date_perfusion ?? null),
+      "Composants": P.text(input.composants ?? null),
+      "Durée": P.text(input.duree ?? null),
+      "Bilan bio": P.select(input.bilan_bio ?? null),
+      "Honoraire IPA": P.number(input.honoraire_ipa ?? null),
+      "Notes": P.text(input.notes ?? null),
+    });
+    await supabaseAdmin()
+      .from("perfusions")
+      .update({
+        date_perfusion: input.date_perfusion || null,
+        composants: input.composants || null,
+        duree: input.duree || null,
+        bilan_bio: input.bilan_bio || null,
+        honoraire_ipa: input.honoraire_ipa ?? null,
+        notes: input.notes || null,
+      })
+      .eq("notion_id", perfusionId);
+    await logAudit(session, { action: "update", area: "perfusions", targetId: perfusionId });
     refresh();
     return { ok: true };
   } catch (e) {
