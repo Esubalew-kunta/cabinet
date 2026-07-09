@@ -724,16 +724,22 @@ export function NouveauPaiementButton({
 export function AppareilRenduButton({ examenId }: { examenId: string }) {
   const { pending, error, run } = useAction();
   const { tr } = useTr();
+  const [confirming, setConfirming] = useState(false);
   return (
     <div>
-      <Button
-        size="sm"
-        variant="secondary"
-        loading={pending}
-        onClick={() => run(() => appareilRendu(examenId), undefined, tr.toast.deviceReturned)}
-      >
-        {tr.dialogs.markReturned}
-      </Button>
+      {confirming ? (
+        <div className="inline-flex items-center gap-1.5">
+          <span className="text-xs text-muted">{tr.common.confirmQuestion}</span>
+          <Button size="sm" loading={pending} onClick={() => run(() => appareilRendu(examenId), () => setConfirming(false), tr.toast.deviceReturned)}>
+            {tr.common.yes}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>{tr.common.no}</Button>
+        </div>
+      ) : (
+        <Button size="sm" variant="secondary" onClick={() => setConfirming(true)}>
+          {tr.dialogs.markReturned}
+        </Button>
+      )}
       <ErrorText error={error} />
     </div>
   );
@@ -1560,28 +1566,40 @@ export function NouvelArticleButton() {
 export function MouvementStockButton({
   article,
   sens,
+  personnel,
+  defaultPar,
 }: {
   article: Pick<Article, "notion_id" | "article" | "quantite">;
   sens: "Entrée" | "Sortie";
+  personnel?: { notion_id: string; nom: string | null }[];
+  defaultPar?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { tr } = useTr();
   const [qte, setQte] = useState("");
   const [motif, setMotif] = useState("");
+  const [par, setPar] = useState(defaultPar ?? "");
+  const [confirming, setConfirming] = useState(false);
   const isIn = sens === "Entrée";
   const current = Number(article.quantite ?? 0);
   const q = Number(qte || 0);
   const next = isIn ? current + q : current - q;
+  const parName = personnel?.find((p) => p.notion_id === par)?.nom ?? null;
 
+  function reset() {
+    setOpen(false);
+    setQte(""); setMotif(""); setConfirming(false);
+    setPar(defaultPar ?? "");
+  }
+
+  // Étape 1 → demande de confirmation ; étape 2 → écriture réelle.
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!confirming) { setConfirming(true); return; }
     run(
-      () => mouvementStock(article.notion_id, { sens, quantite: q, motif: motif || null }),
-      () => {
-        setOpen(false);
-        setQte(""); setMotif("");
-      },
+      () => mouvementStock(article.notion_id, { sens, quantite: q, motif: motif || null, par: par || null }),
+      reset,
       tr.toast.stockMoved
     );
   }
@@ -1594,27 +1612,49 @@ export function MouvementStockButton({
       </Button>
       <Dialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={reset}
         title={`${isIn ? tr.inventaire.restockTitle : tr.inventaire.usageTitle} — ${article.article}`}
         icon={isIn ? <ArrowDownToLine /> : <ArrowUpFromLine />}
       >
         <form onSubmit={submit} className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.inventaire.qtyLabel}>
-              <Input type="number" min="1" step="1" value={qte} onChange={(e) => setQte(e.target.value)} required autoFocus />
+              <Input type="number" min="1" step="1" value={qte} onChange={(e) => setQte(e.target.value)} required autoFocus disabled={confirming} />
             </Field>
             <Field label={tr.inventaire.reasonLabel}>
-              <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder={tr.inventaire.reasonPlaceholder} />
+              <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder={tr.inventaire.reasonPlaceholder} disabled={confirming} />
             </Field>
           </div>
+          {personnel && (
+            <Field label={tr.inventaire.doneBy}>
+              <Select value={par} onChange={(e) => setPar(e.target.value)} disabled={confirming}>
+                <option value="">{tr.common.notAssigned}</option>
+                {personnel.map((p) => (
+                  <option key={p.notion_id} value={p.notion_id}>{p.nom}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <p className={`text-xs ${next < 0 ? "font-medium text-danger" : "text-muted"}`}>
             {next < 0 ? tr.inventaire.notEnough : tr.inventaire.afterMove(next)}
           </p>
           <ErrorText error={error} />
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
-            <Button type="submit" loading={pending} disabled={!q || next < 0}>{tr.inventaire.saveMove}</Button>
-          </div>
+          {confirming ? (
+            <div className="rounded-lg border border-border bg-surface/60 p-3 text-sm">
+              <p className="font-medium">
+                {tr.inventaire.confirmMove(isIn ? tr.inventaire.restock : tr.inventaire.usage, q, article.article ?? "", parName)}
+              </p>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>{tr.common.no}</Button>
+                <Button type="submit" loading={pending}>{tr.common.yes}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="secondary" onClick={reset}>{tr.common.cancel}</Button>
+              <Button type="submit" disabled={!q || next < 0}>{tr.common.continue}</Button>
+            </div>
+          )}
         </form>
       </Dialog>
     </>

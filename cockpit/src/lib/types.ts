@@ -158,6 +158,19 @@ export type Mouvement = {
   date_mouvement: string | null;
 };
 
+export type AuditEntry = {
+  id: number;
+  at: string;
+  member_id: string | null;
+  actor_email: string | null;
+  actor_nom: string | null;
+  action: string;
+  area: string | null;
+  target_id: string | null;
+  target_label: string | null;
+  detail: Record<string, unknown> | null;
+};
+
 export type Abonne = {
   notion_id: string;
   nom: string | null;

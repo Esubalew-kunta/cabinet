@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import { notion, withNotionRetry } from "@/lib/notion/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSession, can } from "@/lib/auth";
+import { logAudit } from "@/lib/audit";
 import { SOURCES } from "@/lib/notion/sources";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,6 +87,7 @@ export async function verifierDossier(dossierId: string): Promise<ActionResult> 
         statut_medecin: "À lire",
       })
       .eq("notion_id", dossierId);
+    await logAudit(session, { action: "verify", area: "dossiers", targetId: dossierId });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -239,6 +241,7 @@ export async function creerDossier(input: {
       console.error("creerDossier: tâche de triage non créée", e);
     }
 
+    await logAudit(session, { action: "create", area: "dossiers", targetId: pageId, targetLabel: ref });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -359,6 +362,7 @@ export async function creerTache(input: {
       dossier_lie: input.dossier ? [input.dossier] : [],
       created_time: new Date().toISOString(),
     });
+    await logAudit(session, { action: "create", area: "taches", targetId: pageId, targetLabel: input.titre.trim() });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -372,6 +376,7 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
     await notionUpdate(tacheId, { Statut: P.select(statut) });
     await supabaseAdmin().from("taches").update({ statut }).eq("notion_id", tacheId);
+    await logAudit(session, { action: "status", area: "taches", targetId: tacheId, detail: { statut } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -385,6 +390,7 @@ export async function reassignerTache(tacheId: string, personnelId: string): Pro
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
     await notionUpdate(tacheId, { Responsable: P.relation([personnelId]) });
     await supabaseAdmin().from("taches").update({ responsable: [personnelId] }).eq("notion_id", tacheId);
+    await logAudit(session, { action: "assign", area: "taches", targetId: tacheId, detail: { responsable: personnelId } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -417,6 +423,7 @@ export async function supprimerTache(tacheId: string): Promise<ActionResult> {
     }
     await withNotionRetry(() => notion().pages.update({ page_id: tacheId, archived: true }));
     await supabaseAdmin().from("taches").delete().eq("notion_id", tacheId);
+    await logAudit(session, { action: "delete", area: "taches", targetId: tacheId });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -462,6 +469,7 @@ export async function enregistrerPaiement(
         ...(statut === "Payé" ? { suivi: "Résolu" } : {}),
       })
       .eq("notion_id", paiementId);
+    await logAudit(session, { action: "collect", area: "paiements", targetId: paiementId, detail: { montant_paye: input.montant_paye, statut } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -513,6 +521,7 @@ export async function creerPaiement(input: {
       responsable: input.responsable ? [input.responsable] : [],
       created_time: new Date().toISOString(),
     });
+    await logAudit(session, { action: "create", area: "paiements", targetId: pageId, targetLabel: ref, detail: { montant_du: input.montant_du } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -602,6 +611,7 @@ export async function creerExamen(input: {
       responsable: input.responsable ? [input.responsable] : [],
       created_time: new Date().toISOString(),
     });
+    await logAudit(session, { action: "assign", area: "examens", targetId: pageId, targetLabel: ref, detail: { type: input.type } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -638,6 +648,7 @@ export async function appareilRendu(examenId: string): Promise<ActionResult> {
       await notionUpdate(uniteId, { "État": P.select("Au cabinet") });
       await admin.from("appareils").update({ etat: "Au cabinet", examen_en_cours: [] }).eq("notion_id", uniteId);
     }
+    await logAudit(session, { action: "return", area: "examens", targetId: examenId });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -686,6 +697,7 @@ export async function creerAppareil(input: {
       notes: input.notes ?? null,
       created_time: new Date().toISOString(),
     });
+    await logAudit(session, { action: "create", area: "appareils", targetId: pageId, targetLabel: ref });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -733,6 +745,7 @@ export async function interpreterExamen(
         ...(input.cat ? { cat: input.cat } : {}),
       })
       .eq("notion_id", examenId);
+    await logAudit(session, { action: "interpret", area: "examens", targetId: examenId, detail: { cat: input.cat ?? null } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -748,6 +761,7 @@ export async function envoyerExamen(examenId: string): Promise<ActionResult> {
     const today = new Date().toISOString().slice(0, 10);
     await notionUpdate(examenId, { "Date envoi": P.date(today) });
     await supabaseAdmin().from("examens").update({ date_envoi: today }).eq("notion_id", examenId);
+    await logAudit(session, { action: "send", area: "examens", targetId: examenId });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -865,6 +879,7 @@ export async function facturerPenalite(examenId: string): Promise<ActionResult> 
       examen: [examenId],
       created_time: new Date().toISOString(),
     });
+    await logAudit(session, { action: "penalty", area: "paiements", targetId: pageId, targetLabel: ref, detail: { days, rate, montant, examen: exam.ref_examen } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -924,6 +939,7 @@ export async function creerPatient(input: {
       medecin_assigne: input.medecin ? [input.medecin] : [],
       created_time: new Date().toISOString(),
     });
+    await logAudit(session, { action: "create", area: "patients", targetId: pageId, targetLabel: input.nom.trim() });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -1112,13 +1128,17 @@ export async function creerArticle(input: {
  */
 export async function mouvementStock(
   articleId: string,
-  input: { sens: "Entrée" | "Sortie"; quantite: number; motif?: string | null }
+  input: { sens: "Entrée" | "Sortie"; quantite: number; motif?: string | null; par?: string | null }
 ): Promise<ActionResult> {
   try {
     const session = await getSession();
     if (!can(session, "stock")) return { ok: false, error: "Accès refusé" };
     const qte = Math.floor(input.quantite);
     if (!qte || qte <= 0) return { ok: false, error: "Quantité invalide" };
+
+    // Qui a fait le mouvement : la personne choisie dans le formulaire (responsabilité),
+    // sinon la fiche Personnel liée au compte connecté.
+    const par = input.par || session.member.personnel_notion_id || null;
 
     const admin = supabaseAdmin();
     const { data: art } = await admin
@@ -1144,7 +1164,7 @@ export async function mouvementStock(
       Date: P.date(today),
     };
     if (input.motif) mvProps["Motif"] = P.text(input.motif);
-    if (session.member.personnel_notion_id) mvProps["Par"] = P.relation([session.member.personnel_notion_id]);
+    if (par) mvProps["Par"] = P.relation([par]);
     const mvId = await notionCreate("stock_mouvements", mvProps);
 
     // 2. La quantité de l'article (+ date de réappro sur une entrée)
@@ -1159,7 +1179,7 @@ export async function mouvementStock(
       sens: input.sens,
       quantite: qte,
       motif: input.motif ?? null,
-      par: session.member.personnel_notion_id ? [session.member.personnel_notion_id] : [],
+      par: par ? [par] : [],
       date_mouvement: today,
       created_time: new Date().toISOString(),
     });
@@ -1167,6 +1187,7 @@ export async function mouvementStock(
       .from("stock")
       .update({ quantite: next, ...(input.sens === "Entrée" ? { dernier_reappro: today } : {}) })
       .eq("notion_id", articleId);
+    await logAudit(session, { action: "stock_move", area: "stock", targetId: articleId, targetLabel: art.article, detail: { sens: input.sens, quantite: qte, par, motif: input.motif ?? null } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -1201,6 +1222,7 @@ export async function setParametre(parametreId: string, valeur: string): Promise
     }
     await notionUpdate(parametreId, { Valeur: P.text(valeur) });
     await supabaseAdmin().from("parametres").update({ valeur }).eq("notion_id", parametreId);
+    await logAudit(session, { action: "setting", area: "parametres", targetId: parametreId, detail: { valeur } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -1217,6 +1239,7 @@ export async function assignerMedecin(patientId: string, personnelId: string | n
       .from("patients")
       .update({ medecin_assigne: personnelId ? [personnelId] : [] })
       .eq("notion_id", patientId);
+    await logAudit(session, { action: "assign", area: "patients", targetId: patientId, detail: { medecin: personnelId } });
     refresh();
     return { ok: true };
   } catch (e) {

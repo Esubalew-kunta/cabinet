@@ -52,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (can(session, "finances")) items.push({ href: "/finances", label: tr.nav.finances, icon: "finances" });
   if (can(session, "admin_stats")) items.push({ href: "/admin", label: tr.nav.admin, icon: "admin" });
   if (can(session, "gestion_comptes")) items.push({ href: "/admin/acces", label: tr.nav.acces, icon: "acces" });
+  if (session.member.is_owner || session.member.role === "admin") items.push({ href: "/audit", label: tr.nav.audit, icon: "audit" });
 
   const showStrip = counts.today + counts.overdue > 0;
 

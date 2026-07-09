@@ -107,8 +107,8 @@ export default async function InventairePage() {
                     <td className="text-xs">{a.fournisseur ?? EMPTY}</td>
                     <td>
                       <div className="flex items-center gap-1.5">
-                        <MouvementStockButton article={a} sens="Entrée" />
-                        <MouvementStockButton article={a} sens="Sortie" />
+                        <MouvementStockButton article={a} sens="Entrée" personnel={staffList} defaultPar={session.member.personnel_notion_id} />
+                        <MouvementStockButton article={a} sens="Sortie" personnel={staffList} defaultPar={session.member.personnel_notion_id} />
                         <HistoriqueArticleButton article={a} mouvements={mouvementsPar.get(a.notion_id) ?? []} personnel={staffList} />
                       </div>
                     </td>

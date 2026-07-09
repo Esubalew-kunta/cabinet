@@ -18,6 +18,7 @@ import {
   Mail,
   Menu,
   Package,
+  ScrollText,
   Settings2,
   Stethoscope,
   Syringe,
@@ -40,6 +41,7 @@ const ICONS = {
   finances: CreditCard,
   admin: Settings2,
   acces: KeyRound,
+  audit: ScrollText,
 } as const;
 
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };

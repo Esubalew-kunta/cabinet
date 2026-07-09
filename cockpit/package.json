@@ -30,6 +30,7 @@
     "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "pg": "^8.22.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"
