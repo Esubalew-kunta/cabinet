@@ -32,6 +32,8 @@ export const SOURCES: SourceSpec[] = [
     dataSourceId: "7c2756ad-9127-4eff-8d19-f2420664e2aa",
     props: [
       { prop: "Nom", column: "nom", kind: "title" },
+      { prop: "Prénom", column: "prenom", kind: "rich_text" },
+      { prop: "Nom de famille", column: "nom_famille", kind: "rich_text" },
       { prop: "Nom complet", column: "nom_complet", kind: "rich_text" },
       { prop: "PSID", column: "psid", kind: "unique_id" },
       { prop: "Statut", column: "statut", kind: "select" },
@@ -216,6 +218,8 @@ export const SOURCES: SourceSpec[] = [
     dataSourceId: "2895672b-5349-4ac6-a505-a6aad98c3495",
     props: [
       { prop: "Nom", column: "nom", kind: "title" },
+      { prop: "Prénom", column: "prenom", kind: "rich_text" },
+      { prop: "Nom de famille", column: "nom_famille", kind: "rich_text" },
       { prop: "Rôle", column: "role", kind: "select" },
       { prop: "Spécialité", column: "specialite", kind: "select" },
       { prop: "Email", column: "email", kind: "email" },

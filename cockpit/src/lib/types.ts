@@ -4,6 +4,8 @@ export type Patient = {
   notion_id: string;
   created_time: string | null;
   nom: string | null;
+  prenom: string | null;
+  nom_famille: string | null;
   nom_complet: string | null;
   psid: number | null;
   statut: string | null;
@@ -184,6 +186,8 @@ export type Abonne = {
 export type PersonnelRow = {
   notion_id: string;
   nom: string | null;
+  prenom: string | null;
+  nom_famille: string | null;
   role: string | null;
   specialite: string | null;
   email: string | null;

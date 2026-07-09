@@ -434,6 +434,7 @@ export function NouveauPatientButton({
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { tr } = useTr();
+  const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [naissance, setNaissance] = useState("");
   const [telephone, setTelephone] = useState("");
@@ -448,6 +449,7 @@ export function NouveauPatientButton({
     run(
       () =>
         creerPatient({
+          prenom: prenom || null,
           nom,
           date_naissance: naissance || null,
           telephone: telephone || null,
@@ -459,7 +461,7 @@ export function NouveauPatientButton({
         }),
       () => {
         setOpen(false);
-        setNom(""); setNaissance(""); setTelephone(""); setEmail(""); setDoctolib(""); setNotes("");
+        setPrenom(""); setNom(""); setNaissance(""); setTelephone(""); setEmail(""); setDoctolib(""); setNotes("");
       },
       tr.toast.patientCreated
     );
@@ -472,9 +474,14 @@ export function NouveauPatientButton({
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)} title={tr.dialogs.newPatient} icon={<UserPlus />}>
         <form onSubmit={submit} className="space-y-3">
-          <Field label={tr.dialogs.name}>
-            <Input value={nom} onChange={(e) => setNom(e.target.value)} required autoFocus placeholder={tr.dialogs.namePlaceholder} />
-          </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.dialogs.firstName}>
+              <Input value={prenom} onChange={(e) => setPrenom(e.target.value)} autoFocus placeholder={tr.dialogs.firstNamePlaceholder} />
+            </Field>
+            <Field label={tr.dialogs.lastName}>
+              <Input value={nom} onChange={(e) => setNom(e.target.value)} required placeholder={tr.dialogs.lastNamePlaceholder} />
+            </Field>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.dialogs.birthDate}>
               <Input type="date" value={naissance} onChange={(e) => setNaissance(e.target.value)} />
@@ -1421,11 +1428,13 @@ export function NouvellePerfusionButton({
 export function ModifierPatientButton({
   patient,
 }: {
-  patient: { notion_id: string; date_naissance: string | null; telephone: string | null; email: string | null; adresse: string | null; notes_secretariat: string | null };
+  patient: { notion_id: string; prenom: string | null; nom_famille: string | null; date_naissance: string | null; telephone: string | null; email: string | null; adresse: string | null; notes_secretariat: string | null };
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { tr } = useTr();
+  const [prenom, setPrenom] = useState(patient.prenom ?? "");
+  const [nom, setNom] = useState(patient.nom_famille ?? "");
   const [naissance, setNaissance] = useState(patient.date_naissance?.slice(0, 10) ?? "");
   const [telephone, setTelephone] = useState(patient.telephone ?? "");
   const [email, setEmail] = useState(patient.email ?? "");
@@ -1437,6 +1446,8 @@ export function ModifierPatientButton({
     run(
       () =>
         majPatientInfos(patient.notion_id, {
+          prenom: prenom || null,
+          nom: nom || null,
           date_naissance: naissance || null,
           telephone: telephone || null,
           email: email || null,
@@ -1455,6 +1466,14 @@ export function ModifierPatientButton({
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)} title={tr.dialogs.editPatient} icon={<Pencil />}>
         <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tr.dialogs.firstName}>
+              <Input value={prenom} onChange={(e) => setPrenom(e.target.value)} placeholder={tr.dialogs.firstNamePlaceholder} />
+            </Field>
+            <Field label={tr.dialogs.lastName}>
+              <Input value={nom} onChange={(e) => setNom(e.target.value)} placeholder={tr.dialogs.lastNamePlaceholder} />
+            </Field>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.dialogs.birthDate}>
               <Input type="date" value={naissance} onChange={(e) => setNaissance(e.target.value)} />

@@ -892,7 +892,8 @@ export async function facturerPenalite(examenId: string): Promise<ActionResult> 
 // ============================================================
 
 export async function creerPatient(input: {
-  nom: string;
+  prenom?: string | null;
+  nom: string; // nom de famille
   date_naissance?: string | null;
   telephone?: string | null;
   email?: string | null;
@@ -906,10 +907,15 @@ export async function creerPatient(input: {
   try {
     const session = await getSession();
     if (!can(session, "patients_all")) return { ok: false, error: "Accès refusé" };
-    if (!input.nom.trim()) return { ok: false, error: "Nom requis" };
+    const prenom = (input.prenom ?? "").trim();
+    const last = input.nom.trim();
+    if (!last) return { ok: false, error: "Nom requis" };
+    const full = [prenom, last].filter(Boolean).join(" ");
 
     const props: Record<string, any> = {
-      Nom: P.title(input.nom.trim()),
+      Nom: P.title(full),
+      "Prénom": P.text(prenom || null),
+      "Nom de famille": P.text(last),
       Statut: P.select("Actif"),
       "Type patient": P.select(input.type_patient ?? "Nouveau"),
     };
@@ -926,7 +932,9 @@ export async function creerPatient(input: {
 
     await supabaseAdmin().from("patients").insert({
       notion_id: pageId,
-      nom: input.nom.trim(),
+      nom: full,
+      prenom: prenom || null,
+      nom_famille: last,
       statut: "Actif",
       type_patient: input.type_patient ?? "Nouveau",
       date_naissance: input.date_naissance ?? null,
@@ -939,7 +947,7 @@ export async function creerPatient(input: {
       medecin_assigne: input.medecin ? [input.medecin] : [],
       created_time: new Date().toISOString(),
     });
-    await logAudit(session, { action: "create", area: "patients", targetId: pageId, targetLabel: input.nom.trim() });
+    await logAudit(session, { action: "create", area: "patients", targetId: pageId, targetLabel: full });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -951,6 +959,8 @@ export async function creerPatient(input: {
 export async function majPatientInfos(
   patientId: string,
   input: {
+    prenom?: string | null;
+    nom?: string | null; // nom de famille
     date_naissance?: string | null;
     telephone?: string | null;
     email?: string | null;
@@ -961,7 +971,16 @@ export async function majPatientInfos(
   try {
     const session = await getSession();
     if (!can(session, "patients_all")) return { ok: false, error: "Accès refusé" };
+    // Nom composé recalculé quand prénom/nom sont fournis (édition du détail).
+    const editName = input.prenom !== undefined || input.nom !== undefined;
+    const prenom = (input.prenom ?? "").trim();
+    const last = (input.nom ?? "").trim();
+    const full = [prenom, last].filter(Boolean).join(" ");
+    const namePatch = editName && last
+      ? { Nom: P.title(full), "Prénom": P.text(prenom || null), "Nom de famille": P.text(last) }
+      : {};
     await notionUpdate(patientId, {
+      ...namePatch,
       "Date de naissance": P.date(input.date_naissance ?? null),
       "Téléphone": P.phone(input.telephone ?? null),
       "Email": P.email(input.email ?? null),
@@ -971,6 +990,7 @@ export async function majPatientInfos(
     await supabaseAdmin()
       .from("patients")
       .update({
+        ...(editName && last ? { nom: full, prenom: prenom || null, nom_famille: last } : {}),
         date_naissance: input.date_naissance || null,
         telephone: input.telephone || null,
         email: input.email || null,
@@ -978,6 +998,7 @@ export async function majPatientInfos(
         notes_secretariat: input.notes_secretariat || null,
       })
       .eq("notion_id", patientId);
+    await logAudit(session, { action: "update", area: "patients", targetId: patientId });
     refresh();
     return { ok: true };
   } catch (e) {
