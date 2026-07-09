@@ -9,6 +9,7 @@ import { LangToggle } from "@/components/lang-toggle";
 import { ROLE_LABELS } from "@/lib/i18n/dict";
 import {
   Activity,
+  CalendarClock,
   ClipboardList,
   CreditCard,
   HeartPulse,
@@ -30,6 +31,7 @@ import { useState } from "react";
 
 const ICONS = {
   secretariat: ClipboardList,
+  agenda: CalendarClock,
   medecin: Stethoscope,
   patients: Users,
   taches: ListChecks,
