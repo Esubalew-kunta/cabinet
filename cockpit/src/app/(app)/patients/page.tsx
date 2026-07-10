@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSession, can, homeFor } from "@/lib/auth";
 import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getPersonnel, getPersonnelMap, personName, isSoignant } from "@/lib/data";
+import { getPersonnel, getPersonnelMap, personName, isSoignant, getOwnerPersonnelId } from "@/lib/data";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
@@ -53,6 +53,7 @@ export default async function PatientsPage({
 
   const personnel = await getPersonnel();
   const personnelMap = await getPersonnelMap();
+  const ownerId = await getOwnerPersonnelId();
   const medecins = personnel.filter(isSoignant);
   const canManage = can(session, "patients_all");
   const problemes = [
@@ -67,7 +68,7 @@ export default async function PatientsPage({
         icon={<Users />}
         title={tr.patients.title}
         subtitle={tr.patients.countFor(patients.length, q)}
-        actions={canManage && <NouveauPatientButton medecins={medecins} problemes={problemes} />}
+        actions={canManage && <NouveauPatientButton medecins={medecins} problemes={problemes} ownerId={ownerId} />}
       />
 
       <form className="relative max-w-sm">

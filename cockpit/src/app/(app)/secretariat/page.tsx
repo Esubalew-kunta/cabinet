@@ -97,7 +97,7 @@ export default async function SecretariatPage() {
         subtitle={tr.secretariat.subtitle}
         actions={
           <>
-            <NouveauPatientButton medecins={medecins} problemes={problemes} />
+            <NouveauPatientButton medecins={medecins} problemes={problemes} ownerId={ownerId} />
             <NouveauDossierButton
               patients={[...patientsIndex.values()]
                 .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))

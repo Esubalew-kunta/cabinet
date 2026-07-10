@@ -477,20 +477,24 @@ export function SupprimerTacheButton({ tacheId }: { tacheId: string }) {
 export function NouveauPatientButton({
   medecins,
   problemes,
+  ownerId,
 }: {
   medecins: { notion_id: string; nom: string | null }[];
   problemes: string[];
+  ownerId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { tr } = useTr();
+  // Médecin par défaut = Dr Amraoui (owner) si sa fiche est proposée.
+  const defaultMedecin = ownerId && medecins.some((m) => m.notion_id === ownerId) ? ownerId : "";
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [naissance, setNaissance] = useState("");
   const [telephone, setTelephone] = useState("");
   const [email, setEmail] = useState("");
   const [probleme, setProbleme] = useState("");
-  const [medecin, setMedecin] = useState("");
+  const [medecin, setMedecin] = useState(defaultMedecin);
   const [doctolib, setDoctolib] = useState("");
   const [notes, setNotes] = useState("");
 
