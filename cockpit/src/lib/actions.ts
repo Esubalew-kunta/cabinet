@@ -358,6 +358,9 @@ export async function creerTache(input: {
       responsable = owner?.personnel_notion_id ?? null;
     }
 
+    // Notifier l'assigné par email (B3) quand la tâche est confiée à QUELQU'UN D'AUTRE.
+    const notify = !!(responsable && responsable !== session.member.personnel_notion_id);
+
     const props: Record<string, any> = {
       Titre: P.title(input.titre.trim()),
       Statut: P.select("À faire"),
@@ -369,6 +372,7 @@ export async function creerTache(input: {
     if (input.recurrence && input.calendrier === "Récurrente") props["Récurrence"] = P.select(input.recurrence);
     if (input.note) props["Note"] = P.text(input.note);
     if (responsable) props["Responsable"] = P.relation([responsable]);
+    if (notify) props["Notifier"] = P.checkbox(true);
     if (session.member.personnel_notion_id) props["Créé par"] = P.relation([session.member.personnel_notion_id]);
     if (input.patient) props["Patient lié"] = P.relation([input.patient]);
     if (input.dossier) props["Dossier lié"] = P.relation([input.dossier]);
@@ -385,6 +389,7 @@ export async function creerTache(input: {
       priorite: input.priorite ?? "Normale",
       domaine: input.domaine ?? "Clinique",
       note: input.note ?? null,
+      notifier: notify,
       responsable: responsable ? [responsable] : [],
       cree_par: session.member.personnel_notion_id ? [session.member.personnel_notion_id] : [],
       patient_lie: input.patient ? [input.patient] : [],
@@ -449,8 +454,15 @@ export async function reassignerTache(tacheId: string, personnelId: string): Pro
   try {
     const session = await getSession();
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
-    await notionUpdate(tacheId, { Responsable: P.relation([personnelId]) });
-    await supabaseAdmin().from("taches").update({ responsable: [personnelId] }).eq("notion_id", tacheId);
+    // Confiée à quelqu'un d'autre → on (re)notifie : Notifier=on + on efface « Notifié le ».
+    const notify = personnelId !== session.member.personnel_notion_id;
+    const patch: Record<string, any> = { Responsable: P.relation([personnelId]) };
+    if (notify) { patch["Notifier"] = P.checkbox(true); patch["Notifié le"] = P.date(null); }
+    await notionUpdate(tacheId, patch);
+    await supabaseAdmin()
+      .from("taches")
+      .update({ responsable: [personnelId], ...(notify ? { notifier: true, notifie_le: null } : {}) })
+      .eq("notion_id", tacheId);
     await logAudit(session, { action: "assign", area: "taches", targetId: tacheId, detail: { responsable: personnelId } });
     refresh();
     return { ok: true };
