@@ -44,7 +44,7 @@ export default async function TacheDetailPage({ params }: { params: Promise<{ id
         <Link href="/taches" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
           <ArrowLeft className="size-3.5" /> {tr.taches.title}
         </Link>
-        <Card><CardBody>{tr.dossierDetail.notFound}</CardBody></Card>
+        <Card><CardBody>{tr.taches.notFound}</CardBody></Card>
       </div>
     );
   }
