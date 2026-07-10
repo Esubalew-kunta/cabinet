@@ -7,7 +7,7 @@ import { getPersonnel, getPersonnelMap, getPatientsIndex, patientName, personNam
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge, Badge } from "@/components/ui/badge";
-import { PRIORITE, STATUT_TACHE } from "@/lib/labels";
+import { PRIORITE } from "@/lib/labels";
 import { formatDate, EMPTY } from "@/lib/utils";
 import {
   StatutSelect,
@@ -18,6 +18,15 @@ import {
 } from "@/components/interactive";
 import { ArrowLeft, ListChecks } from "lucide-react";
 import type { Tache } from "@/lib/types";
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-3 items-center gap-3 border-b border-border py-2.5 last:border-0">
+      <span className="text-xs uppercase tracking-wide text-muted">{label}</span>
+      <span className="col-span-2 text-sm">{children}</span>
+    </div>
+  );
+}
 
 /** Fiche d'une tâche : détail complet + édition. Cible des liens d'email (B3). */
 export default async function TacheDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -48,13 +57,6 @@ export default async function TacheDetailPage({ params }: { params: Promise<{ id
       </div>
     );
   }
-
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="grid grid-cols-3 items-center gap-3 border-b border-border py-2.5 last:border-0">
-      <span className="text-xs uppercase tracking-wide text-muted">{label}</span>
-      <span className="col-span-2 text-sm">{children}</span>
-    </div>
-  );
 
   return (
     <div className="space-y-4">
