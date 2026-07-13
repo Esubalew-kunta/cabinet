@@ -2,6 +2,7 @@ import { notion } from "./client";
 import { SOURCES, type SourceSpec } from "./sources";
 import { mapPage } from "./mapper";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { drainHorairesToNotion } from "@/lib/horaires-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -68,6 +69,14 @@ export async function runSync(triggerSource: string): Promise<SyncResult> {
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  // Miroir « write-behind » des horaires : pousse les semaines modifiées vers
+  // Notion (throttlé, best-effort) — la même sync 2 h l'entretient sans config.
+  try {
+    await drainHorairesToNotion();
+  } catch {
+    // le drainer est best-effort ; ne fait jamais échouer la sync principale
   }
 
   const ok = errors.length === 0;

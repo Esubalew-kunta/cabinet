@@ -44,7 +44,7 @@ export const getSession = cache(async (): Promise<Session> => {
     // zones qui n'auraient pas de ligne
     for (const area of [
       "patients_all","patients_own","dossiers_all","dossiers_own","taches","taches_perso_dr",
-      "examens","stock","abonnes","perfusions","paiements_own","paiements_all","finances","admin_stats","gestion_comptes","sync",
+      "examens","stock","planning","abonnes","perfusions","paiements_own","paiements_all","finances","admin_stats","gestion_comptes","sync",
     ]) perms[area] = "full";
   }
 

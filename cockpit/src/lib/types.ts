@@ -185,6 +185,21 @@ export type Abonne = {
   date_inscription: string | null;
 };
 
+/** Un bloc d'horaire de travail d'une secrétaire (module Horaires). */
+export type Horaire = {
+  id: string;
+  secretaire_notion_id: string;
+  date: string;                 // 'YYYY-MM-DD'
+  debut: string;                // 'HH:mm'
+  fin: string;                  // 'HH:mm'
+  note: string | null;
+  recurring_group_id: string | null;
+  cree_par: string | null;
+  sync_state: string;           // pending | synced
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export type PersonnelRow = {
   notion_id: string;
   nom: string | null;

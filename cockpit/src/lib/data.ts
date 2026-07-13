@@ -42,6 +42,26 @@ export const getPatientsIndex = cache(async (): Promise<Map<string, Patient>> =>
   return new Map(((data ?? []) as Patient[]).map((p) => [p.notion_id, p]));
 });
 
+/** Secrétaires actives (module Horaires), triées par nom. */
+export const getSecretaires = cache(async (): Promise<PersonnelRow[]> => {
+  const rows = await getPersonnel();
+  return rows.filter((p) => p.actif && p.role === "Secrétaire");
+});
+
+/**
+ * Réglages du cabinet (table parametres) sous forme de Map nom→valeur.
+ * Chargé une fois par requête ; les défauts sont gérés côté appelant.
+ */
+export const getSettingsMap = cache(async (): Promise<Map<string, string>> => {
+  const supa = await supabaseServer();
+  const { data } = await supa.from("parametres").select("parametre, valeur");
+  const m = new Map<string, string>();
+  for (const r of (data ?? []) as { parametre: string | null; valeur: string | null }[]) {
+    if (r.parametre) m.set(r.parametre, (r.valeur ?? "").trim());
+  }
+  return m;
+});
+
 /**
  * Décision (8 juil.) : l'IPA est traitée comme un médecin partout —
  * sélecteurs d'assignation, prise en charge des cas, vues médecin.

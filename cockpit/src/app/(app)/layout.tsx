@@ -40,6 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const items: NavItem[] = [];
   if (can(session, "dossiers_all")) items.push({ href: "/secretariat", label: tr.nav.secretariat, icon: "secretariat" });
   if (can(session, "dossiers_all")) items.push({ href: "/agenda", label: tr.nav.agenda, icon: "agenda" });
+  if (can(session, "planning")) items.push({ href: "/horaires", label: tr.nav.horaires, icon: "horaires" });
   if (member.role === "medecin" || member.role === "ipa" || member.is_owner || member.role === "admin")
     items.push({ href: "/medecin", label: tr.nav.medecin, icon: "medecin" });
   if (can(session, "patients_all") || can(session, "patients_own"))

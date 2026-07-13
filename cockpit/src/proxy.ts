@@ -30,7 +30,10 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isPublic = pathname.startsWith("/connexion") || pathname.startsWith("/api/sync");
+  const isPublic =
+    pathname.startsWith("/connexion") ||
+    pathname.startsWith("/api/sync") ||
+    pathname.startsWith("/api/horaires-sync");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

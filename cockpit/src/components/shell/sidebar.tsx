@@ -10,6 +10,7 @@ import { ROLE_LABELS } from "@/lib/i18n/dict";
 import {
   Activity,
   CalendarClock,
+  CalendarRange,
   ClipboardList,
   CreditCard,
   HeartPulse,
@@ -32,6 +33,7 @@ import { useState } from "react";
 const ICONS = {
   secretariat: ClipboardList,
   agenda: CalendarClock,
+  horaires: CalendarRange,
   medecin: Stethoscope,
   patients: Users,
   taches: ListChecks,

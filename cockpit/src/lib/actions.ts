@@ -12,6 +12,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSession, can } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { SOURCES } from "@/lib/notion/sources";
+import { isValidRange, isoWeek, addDays } from "@/lib/horaires";
+import { randomUUID } from "node:crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1397,6 +1399,205 @@ export async function assignerMedecin(patientId: string, personnelId: string | n
       .eq("notion_id", patientId);
     await logAudit(session, { action: "assign", area: "patients", targetId: patientId, detail: { medecin: personnelId } });
     refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ============================================================
+// Horaires secrétariat (module « planning »)
+// Modèle A+B : Supabase = source de vérité (écriture immédiate) ; Notion est
+// mis à jour en arrière-plan par le drainer throttlé. Chaque changement marque
+// la (secrétaire, semaine) concernée « dirty » pour ce drainer.
+// ============================================================
+
+function refreshHoraires() {
+  revalidatePath("/horaires", "layout");
+  revalidatePath("/agenda", "layout");
+}
+
+/** Valeur d'un réglage (table parametres), chaîne vide si absent. */
+async function settingValue(admin: ReturnType<typeof supabaseAdmin>, name: string): Promise<string> {
+  const { data } = await admin.from("parametres").select("valeur").eq("parametre", name).maybeSingle();
+  return (data?.valeur ?? "").trim();
+}
+
+/**
+ * Droit d'écriture sur les horaires d'une secrétaire :
+ * - owner/admin (la médecin) : toujours.
+ * - secrétaire : ses propres blocs uniquement, si l'auto-édition est activée
+ *   (réglage secretary_self_edit ≠ "off").
+ */
+async function assertCanWriteHoraire(
+  session: Awaited<ReturnType<typeof getSession>>,
+  secretaireId: string,
+  admin: ReturnType<typeof supabaseAdmin>
+): Promise<string | null> {
+  if (session.member.is_owner || session.member.role === "admin") return null;
+  if (!can(session, "planning")) return "Accès refusé";
+  const selfEdit = (await settingValue(admin, "secretary_self_edit")) !== "off";
+  if (!selfEdit) return "Modification réservée au médecin";
+  if (session.member.personnel_notion_id && session.member.personnel_notion_id === secretaireId) return null;
+  return "Vous ne pouvez modifier que vos propres horaires";
+}
+
+/** Marque chaque (secrétaire, semaine) des dates données à repousser vers Notion. */
+async function markWeeksDirty(admin: ReturnType<typeof supabaseAdmin>, secretaireId: string, dates: string[]) {
+  const semaines = Array.from(new Set(dates.map((d) => isoWeek(d))));
+  const now = new Date().toISOString();
+  for (const semaine of semaines) {
+    await admin
+      .from("horaires_notion_semaines")
+      .upsert(
+        { secretaire_notion_id: secretaireId, semaine, dirty: true, updated_at: now },
+        { onConflict: "secretaire_notion_id,semaine" }
+      );
+  }
+}
+
+/**
+ * Créer un ou plusieurs blocs d'horaire. `repeatWeeks` > 1 génère le même bloc
+ * sur le même jour de semaine pour N semaines (blocs individuels, éditables),
+ * reliés par un recurring_group_id.
+ */
+export async function creerHoraire(input: {
+  secretaireId: string;
+  date: string;
+  debut: string;
+  fin: string;
+  note?: string | null;
+  repeatWeeks?: number | null;
+}): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const admin = supabaseAdmin();
+    const guard = await assertCanWriteHoraire(session, input.secretaireId, admin);
+    if (guard) return { ok: false, error: guard };
+    if (!input.secretaireId) return { ok: false, error: "Secrétaire requise" };
+    if (!input.date) return { ok: false, error: "Date requise" };
+    if (!isValidRange(input.debut, input.fin)) return { ok: false, error: "L'heure de fin doit être après le début" };
+
+    const weeks = Math.max(1, Math.min(52, Math.floor(input.repeatWeeks ?? 1)));
+    const groupId = weeks > 1 ? randomUUID() : null;
+    const note = input.note?.trim() || null;
+    const dates = Array.from({ length: weeks }, (_, i) => addDays(input.date, i * 7));
+    const rows = dates.map((date) => ({
+      secretaire_notion_id: input.secretaireId,
+      date,
+      debut: input.debut,
+      fin: input.fin,
+      note,
+      recurring_group_id: groupId,
+      cree_par: session.member.personnel_notion_id ?? null,
+      sync_state: "pending",
+    }));
+
+    const { error } = await admin.from("horaires_secretariat").insert(rows);
+    if (error) return { ok: false, error: error.message };
+    await markWeeksDirty(admin, input.secretaireId, dates);
+    await logAudit(session, {
+      action: "create",
+      area: "planning",
+      targetId: input.secretaireId,
+      detail: { date: input.date, debut: input.debut, fin: input.fin, weeks },
+    });
+    refreshHoraires();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Modifier un bloc. Les heures/la note changent toujours ; la secrétaire et la
+ * date peuvent aussi changer (déplacer le créneau) — réservé à qui a le droit
+ * d'écrire à la fois sur l'ancienne ET la nouvelle secrétaire. Les deux semaines
+ * concernées sont marquées à repousser vers Notion.
+ */
+export async function majHoraire(
+  id: string,
+  input: { secretaireId?: string; date?: string; debut: string; fin: string; note?: string | null }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const admin = supabaseAdmin();
+    const { data: row } = await admin
+      .from("horaires_secretariat")
+      .select("secretaire_notion_id, date")
+      .eq("id", id)
+      .maybeSingle();
+    if (!row) return { ok: false, error: "Bloc introuvable" };
+    // Droit sur le bloc actuel.
+    const guard = await assertCanWriteHoraire(session, row.secretaire_notion_id, admin);
+    if (guard) return { ok: false, error: guard };
+    if (!isValidRange(input.debut, input.fin)) return { ok: false, error: "L'heure de fin doit être après le début" };
+
+    const newSec = input.secretaireId || row.secretaire_notion_id;
+    const newDate = input.date || row.date;
+    // Réattribution : il faut aussi le droit d'écrire sur la nouvelle secrétaire.
+    if (newSec !== row.secretaire_notion_id) {
+      const guard2 = await assertCanWriteHoraire(session, newSec, admin);
+      if (guard2) return { ok: false, error: guard2 };
+    }
+
+    const { error } = await admin
+      .from("horaires_secretariat")
+      .update({
+        secretaire_notion_id: newSec,
+        date: newDate,
+        debut: input.debut,
+        fin: input.fin,
+        note: input.note?.trim() || null,
+        sync_state: "pending",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    // Ancienne position + nouvelle position (peuvent différer de secrétaire/semaine).
+    await markWeeksDirty(admin, row.secretaire_notion_id, [row.date]);
+    await markWeeksDirty(admin, newSec, [newDate]);
+    await logAudit(session, {
+      action: "update",
+      area: "planning",
+      targetId: id,
+      detail: { debut: input.debut, fin: input.fin, moved: newSec !== row.secretaire_notion_id || newDate !== row.date },
+    });
+    refreshHoraires();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Supprimer un bloc (ou toute sa série récurrente si `wholeGroup`). */
+export async function supprimerHoraire(id: string, wholeGroup = false): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    const admin = supabaseAdmin();
+    const { data: row } = await admin
+      .from("horaires_secretariat")
+      .select("secretaire_notion_id, date, recurring_group_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!row) return { ok: false, error: "Bloc introuvable" };
+    const guard = await assertCanWriteHoraire(session, row.secretaire_notion_id, admin);
+    if (guard) return { ok: false, error: guard };
+
+    let dates = [row.date];
+    if (wholeGroup && row.recurring_group_id) {
+      const { data: siblings } = await admin
+        .from("horaires_secretariat")
+        .select("date")
+        .eq("recurring_group_id", row.recurring_group_id);
+      dates = (siblings ?? []).map((s) => s.date as string);
+      await admin.from("horaires_secretariat").delete().eq("recurring_group_id", row.recurring_group_id);
+    } else {
+      await admin.from("horaires_secretariat").delete().eq("id", id);
+    }
+    await markWeeksDirty(admin, row.secretaire_notion_id, dates);
+    await logAudit(session, { action: "delete", area: "planning", targetId: id, detail: { wholeGroup } });
+    refreshHoraires();
     return { ok: true };
   } catch (e) {
     return fail(e);
