@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { drainHorairesToNotion } from "@/lib/horaires-sync";
 import { rattraperRecurrences } from "@/lib/taches-recurrence";
 import { drainMessagesToNotion } from "@/lib/messages-sync";
+import { activerReservationsDues } from "@/lib/appareils-reservations";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -94,6 +95,16 @@ export async function runSync(triggerSource: string): Promise<SyncResult> {
   try {
     const res = await drainMessagesToNotion();
     if (res.pushed) counts["messages_notion"] = res.pushed;
+  } catch {
+    // best-effort
+  }
+
+  // Réservations d'appareils arrivées à échéance : l'unité passe « Dehors » le jour de
+  // la pose. Sans ça le parc afficherait « Au cabinet » pour un boîtier déjà chez un
+  // patient. (La disponibilité, elle, ne dépend pas de ce passage — cf. appareils.ts.)
+  try {
+    const { actives } = await activerReservationsDues();
+    if (actives > 0) counts["reservations_activees"] = actives;
   } catch {
     // best-effort
   }
