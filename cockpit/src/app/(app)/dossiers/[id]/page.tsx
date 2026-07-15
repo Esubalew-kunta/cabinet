@@ -10,6 +10,7 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { STATUT_INTAKE, STATUT_MEDECIN, STATUT_CR, STATUT_APPAREIL, STATUT_PAIEMENT, STATUT_TACHE, PRIORITE } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
+import { jour, type Pret } from "@/lib/appareils";
 import { tv } from "@/lib/i18n/dict";
 import {
   VerifierDossierButton,
@@ -77,11 +78,43 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
       : Promise.resolve(null),
   ]);
 
-  // Parc d'appareils (pour poser un appareil directement depuis le cas)
+  // Parc d'appareils (pour poser un appareil directement depuis le cas).
+  // Chaque unité part avec ses prêts OUVERTS : sans eux, le dialogue croirait tout
+  // disponible et le serveur refuserait au moment de valider.
   const canAssignDevice = can(session, "examens");
-  const appareils = canAssignDevice
-    ? await supa.from("appareils").select("notion_id, ref_appareil, type, etat").then((r) => (r.data ?? []) as Appareil[])
-    : [];
+  const [unitesBrutes, pretsOuverts] = canAssignDevice
+    ? await Promise.all([
+        supa.from("appareils").select("notion_id, ref_appareil, type, etat").then((r) => (r.data ?? []) as Appareil[]),
+        supa
+          .from("examens")
+          .select("notion_id, appareil, date_pose, restitution_prevue, restitution_effective")
+          .is("restitution_effective", null)
+          .then((r) => (r.data ?? []) as Pick<Examen, "notion_id" | "appareil" | "date_pose" | "restitution_prevue" | "restitution_effective">[]),
+      ])
+    : [[] as Appareil[], []];
+
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const pretsParUnite = new Map<string, Pret[]>();
+  for (const e of pretsOuverts) {
+    for (const uniteId of e.appareil ?? []) {
+      pretsParUnite.set(uniteId, [
+        ...(pretsParUnite.get(uniteId) ?? []),
+        {
+          id: e.notion_id,
+          debut: jour(e.date_pose) ?? aujourdhui,
+          retourPrevu: jour(e.restitution_prevue),
+          retourEffectif: jour(e.restitution_effective),
+        },
+      ]);
+    }
+  }
+  const appareils = unitesBrutes.map((u) => ({
+    notion_id: u.notion_id,
+    ref_appareil: u.ref_appareil,
+    type: u.type,
+    etat: u.etat,
+    prets: pretsParUnite.get(u.notion_id) ?? [],
+  }));
 
   const medecins = personnel.filter(isSoignant);
   const patients = patient ? [{ notion_id: patient.notion_id, nom: patient.nom }] : [];

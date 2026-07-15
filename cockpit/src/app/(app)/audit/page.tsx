@@ -15,7 +15,7 @@ import type { Tone } from "@/lib/labels";
 
 const ACTION_TONE: Record<string, Tone> = {
   create: "green", update: "blue", delete: "red", verify: "violet",
-  assign: "blue", return: "green", collect: "green", penalty: "orange",
+  assign: "blue", reserve: "violet", return: "green", collect: "green", penalty: "orange",
   stock_move: "yellow", interpret: "violet", send: "blue", status: "gray", setting: "orange",
 };
 

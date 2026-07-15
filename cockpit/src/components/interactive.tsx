@@ -30,6 +30,7 @@ import {
   RECURRENCES,
 } from "@/lib/labels";
 import { tv, RECURRENCE } from "@/lib/i18n/dict";
+import { uniteDisponible, prochaineDisponibilite, type Pret } from "@/lib/appareils";
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Minus, Package, Pencil, Plus, Repeat, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
@@ -1125,6 +1126,18 @@ export function OrdonnanceToggle({ dossierId, value }: { dossierId: string; valu
 
 /* ---------- Examens : pose, CAT, suivi appareillage, pénalité ---------- */
 
+/**
+ * Une unité du parc, avec ses prêts ouverts (en cours ET réservations à venir).
+ *
+ * `prets` est REQUIS, à dessein : la disponibilité se juge sur la date demandée, pas sur
+ * `etat` qui ne décrit que l'instant présent. Un appelant qui l'oublierait afficherait
+ * « tout est libre » avant de se faire refuser par le serveur — le rendre optionnel
+ * laisserait le compilateur passer à côté.
+ */
+export type Unite = Pick<Appareil, "notion_id" | "ref_appareil" | "type" | "etat"> & {
+  prets: Pret[];
+};
+
 export function NouvelExamenButton({
   patients,
   interpretes,
@@ -1134,40 +1147,65 @@ export function NouvelExamenButton({
 }: {
   patients: { notion_id: string; nom: string | null }[];
   interpretes: { notion_id: string; nom: string | null }[];
-  unites: Pick<Appareil, "notion_id" | "ref_appareil" | "type" | "etat">[];
+  unites: Unite[];
   defaultPatient?: string;
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { lang, tr } = useTr();
-  // Unités libres par type ; on démarre sur un type qui a du stock, unité auto-choisie.
-  const freeOf = (t: string) => unites.filter((u) => u.type === t && u.etat === "Au cabinet");
-  const initialType = TYPES_APPAREIL.find((t) => freeOf(t).length > 0) ?? TYPES_APPAREIL[0];
-  const [type, setType] = useState<string>(initialType);
-  const [patient, setPatient] = useState(defaultPatient ?? "");
-  const [unite, setUnite] = useState(freeOf(initialType)[0]?.notion_id ?? "");
-  const [indication, setIndication] = useState("");
-  const [site, setSite] = useState<string>(SITES[0]);
   const today = new Date().toISOString().slice(0, 10);
   const [pose, setPose] = useState(today);
+
+  // Disponibilité jugée à la DATE demandée, pas sur l'état courant : c'est ce qui
+  // permet de réserver un appareil encore dehors mais rendu d'ici là.
+  const horsService = (u: Unite) => Boolean(u.etat) && !["Au cabinet", "Dehors"].includes(u.etat!);
+  const freeOf = (t: string, date: string) =>
+    unites.filter((u) => u.type === t && !horsService(u) && uniteDisponible(u.prets, date));
+  const ofType = (t: string) => unites.filter((u) => u.type === t && !horsService(u));
+
+  const initialType = TYPES_APPAREIL.find((t) => freeOf(t, today).length > 0) ?? TYPES_APPAREIL[0];
+  const [type, setType] = useState<string>(initialType);
+  const [patient, setPatient] = useState(defaultPatient ?? "");
+  const [unite, setUnite] = useState(freeOf(initialType, today)[0]?.notion_id ?? "");
+  const [indication, setIndication] = useState("");
+  const [site, setSite] = useState<string>(SITES[0]);
   const [retour, setRetour] = useState("");
   const [interprete, setInterprete] = useState("");
 
-  const libres = freeOf(type);
+  const libres = freeOf(type, pose);
+  // Les autres unités du type, avec la date à laquelle elles se libèrent : bien plus utile
+  // qu'une liste vide quand tout est sorti (« Holter n°2 — libre à partir du 7 juin »).
+  const occupees = ofType(type)
+    .filter((u) => !libres.some((l) => l.notion_id === u.notion_id))
+    .map((u) => ({ u, libre: prochaineDisponibilite(u.prets, pose) }))
+    .sort((a, b) => (a.libre ?? "9999").localeCompare(b.libre ?? "9999"));
+
+  // Changer la date de pose peut invalider l'unité choisie : on la libère plutôt que
+  // d'envoyer au serveur un choix qu'il refusera.
+  const uniteEncoreValide = !unite || libres.some((u) => u.notion_id === unite);
+  const uniteEffective = uniteEncoreValide ? unite : "";
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!uniteEffective) {
+      setError(tr.examens.unitRequired);
+      return;
+    }
+    if (!retour) {
+      setError(tr.examens.returnRequired);
+      return;
+    }
     run(
       () =>
         creerExamen({
           type,
           patient,
-          appareil: unite || null,
+          appareil: uniteEffective,
           indication: indication || null,
           site,
           date_pose: pose,
-          restitution_prevue: retour || null,
+          restitution_prevue: retour,
           interprete: interprete || null,
         }),
       () => {
@@ -1195,18 +1233,28 @@ export function NouvelExamenButton({
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.common.type} hint={tr.examens.availabilityHint}>
-              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t)[0]?.notion_id ?? ""); }}>
+              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t, pose)[0]?.notion_id ?? ""); }}>
                 {TYPES_APPAREIL.map((t) => {
-                  const n = freeOf(t).length;
-                  return <option key={t} value={t} disabled={n === 0}>{t} — {tr.examens.availableCount(n)}</option>;
+                  const n = freeOf(t, pose).length;
+                  return <option key={t} value={t}>{t} — {tr.examens.availableCount(n)}</option>;
                 })}
               </Select>
             </Field>
             <Field label={tr.examens.unitLabel} hint={tr.examens.unitHint}>
-              <Select value={unite} onChange={(e) => setUnite(e.target.value)}>
-                <option value="">{libres.length === 0 ? tr.examens.noFreeUnit : tr.examens.unitNone}</option>
+              <Select value={uniteEffective} onChange={(e) => setUnite(e.target.value)} required>
+                {/* Plus d'option « Sans appareil » : un examen immobilise toujours un boîtier.
+                    Quand rien n'est libre à cette date, on ANNONCE la date de libération
+                    plutôt que d'afficher une liste vide (décision réunion juil. 2026). */}
+                <option value="" disabled>
+                  {libres.length === 0 ? tr.examens.noFreeUnit : tr.common.choose}
+                </option>
                 {libres.map((u) => (
                   <option key={u.notion_id} value={u.notion_id}>{u.ref_appareil}</option>
+                ))}
+                {occupees.map(({ u, libre }) => (
+                  <option key={u.notion_id} value={u.notion_id} disabled>
+                    {u.ref_appareil} — {libre ? tr.examens.freeFrom(libre) : tr.examens.freeUnknown}
+                  </option>
                 ))}
               </Select>
             </Field>
@@ -1228,8 +1276,10 @@ export function NouvelExamenButton({
             <Field label={tr.examens.poseLabel}>
               <Input type="date" value={pose} onChange={(e) => setPose(e.target.value)} required />
             </Field>
-            <Field label={tr.examens.returnLabel}>
-              <Input type="date" value={retour} onChange={(e) => setRetour(e.target.value)} />
+            {/* Requis : sans retour prévu, la fin du prêt est inconnue et l'unité serait
+                bloquée indéfiniment pour tous les suivants. */}
+            <Field label={tr.examens.returnLabel} hint={tr.examens.returnHint}>
+              <Input type="date" value={retour} min={pose} onChange={(e) => setRetour(e.target.value)} required />
             </Field>
             <Field label={tr.examens.colInterpreter}>
               <Select value={interprete} onChange={(e) => setInterprete(e.target.value)}>

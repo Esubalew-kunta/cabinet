@@ -14,6 +14,7 @@ import { P, notionCreate, notionUpdate, notionArchive } from "@/lib/notion/write
 import { isValidRange, isoWeek, addDays } from "@/lib/horaires";
 import { estRecurrente } from "@/lib/recurrence";
 import { genererInstanceSuivante } from "@/lib/taches-recurrence";
+import { jour, uniteDisponible, prochaineDisponibilite } from "@/lib/appareils";
 import { randomUUID } from "node:crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -639,9 +640,15 @@ export async function creerPaiement(input: {
 // ============================================================
 
 /**
- * Pose d'un examen : choisit une unité LIBRE du parc (Appareils) ; l'unité
- * passe « Dehors » et reste liée à l'examen jusqu'au retour. La réf de l'unité
- * est copiée dans « Numéro appareil » (historique conservé après restitution).
+ * Pose (ou RÉSERVATION) d'un examen.
+ *
+ * Une réservation n'est rien d'autre qu'un examen dont la « Date de pose » est à venir :
+ * pas de nouvelle entité. La disponibilité se juge sur la PLAGE demandée, pas sur l'état
+ * courant de l'unité — c'est ce qui permet le cas de la réunion : appareil attendu le 6,
+ * on réserve dès aujourd'hui pour le 7.
+ *
+ * L'unité ne passe « Dehors » que le jour de la pose : la réserver pour dans trois mois
+ * ne doit pas l'immobiliser aujourd'hui (c'était le comportement précédent).
  */
 export async function creerExamen(input: {
   type: string;
@@ -660,25 +667,69 @@ export async function creerExamen(input: {
     if (!input.patient) return { ok: false, error: "Patient requis" };
 
     const admin = supabaseAdmin();
+    const today = new Date().toISOString().slice(0, 10);
+    const posee = jour(input.date_pose)!;
+    // La pose est-elle à venir ? Alors c'est une réservation : l'unité reste au cabinet.
+    const estReservation = posee > today;
+
     let uniteRef: string | null = null;
     if (input.appareil) {
+      // Sans retour prévu, la fin du prêt est inconnue : plus aucun chevauchement
+      // n'est calculable et l'unité serait bloquée indéfiniment pour les suivants.
+      if (!input.restitution_prevue) {
+        return { ok: false, error: "Retour prévu requis pour immobiliser un appareil" };
+      }
+      if (jour(input.restitution_prevue)! < posee) {
+        return { ok: false, error: "Le retour prévu ne peut pas précéder la pose" };
+      }
+
       const { data: unite } = await admin
         .from("appareils")
         .select("ref_appareil, etat")
         .eq("notion_id", input.appareil)
         .single();
       if (!unite) return { ok: false, error: "Unité introuvable (synchronisation ?)" };
-      if (unite.etat !== "Au cabinet") return { ok: false, error: `Unité indisponible (${unite.etat})` };
+
+      // Hors service : aucune date n'y changera rien.
+      if (unite.etat && !["Au cabinet", "Dehors"].includes(unite.etat)) {
+        return { ok: false, error: `Unité indisponible (${unite.etat})` };
+      }
+
+      // Disponibilité par PLAGE : les prêts ouverts de cette unité (pose passée
+      // comme à venir) sont confrontés à la date demandée.
+      const { data: prets } = await admin
+        .from("examens")
+        .select("notion_id, date_pose, restitution_prevue, restitution_effective")
+        .contains("appareil", [input.appareil])
+        .is("restitution_effective", null);
+
+      const ouverts = (prets ?? []).map((e) => ({
+        id: e.notion_id,
+        debut: e.date_pose ?? today,
+        retourPrevu: e.restitution_prevue,
+        retourEffectif: e.restitution_effective,
+      }));
+
+      if (!uniteDisponible(ouverts, posee)) {
+        const libre = prochaineDisponibilite(ouverts, posee);
+        return {
+          ok: false,
+          error: libre
+            ? `Unité indisponible à cette date — libre à partir du ${libre}`
+            : "Unité indisponible : un prêt en cours n'a pas de date de retour",
+        };
+      }
       uniteRef = unite.ref_appareil;
     }
 
     const ref = `EX-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+    const statutAppareil = estReservation ? "Disponible" : "Remis";
     const props: Record<string, any> = {
       "Réf examen": P.title(ref),
       Type: P.select(input.type),
       Patient: P.relation([input.patient]),
       "Date de pose": P.date(input.date_pose),
-      "Statut appareil": P.select("Remis"),
+      "Statut appareil": P.select(statutAppareil),
     };
     if (input.appareil) props["Appareil"] = P.relation([input.appareil]);
     if (uniteRef) props["Numéro appareil"] = P.text(uniteRef);
@@ -690,9 +741,10 @@ export async function creerExamen(input: {
 
     const pageId = await notionCreate("examens", props);
 
-    // L'unité sort du cabinet (la relation « Examen en cours » est déjà
-    // synchronisée côté Notion — relation double —, on ne pousse que l'État).
-    if (input.appareil) {
+    // L'unité ne sort QUE si la pose est aujourd'hui : une réservation pour plus tard
+    // la laisse au cabinet et disponible entre-temps (la relation « Examen en cours »
+    // est déjà synchronisée côté Notion — relation double —, on ne pousse que l'État).
+    if (input.appareil && !estReservation) {
       await notionUpdate(input.appareil, { "État": P.select("Dehors") });
       await admin
         .from("appareils")
@@ -706,7 +758,7 @@ export async function creerExamen(input: {
       type: input.type,
       indication: input.indication ?? null,
       site: input.site ?? null,
-      statut_appareil: "Remis",
+      statut_appareil: statutAppareil,
       numero_appareil: uniteRef,
       date_pose: input.date_pose,
       restitution_prevue: input.restitution_prevue ?? null,
@@ -716,7 +768,13 @@ export async function creerExamen(input: {
       responsable: input.responsable ? [input.responsable] : [],
       created_time: new Date().toISOString(),
     });
-    await logAudit(session, { action: "assign", area: "examens", targetId: pageId, targetLabel: ref, detail: { type: input.type } });
+    await logAudit(session, {
+      action: estReservation ? "reserve" : "assign",
+      area: "examens",
+      targetId: pageId,
+      targetLabel: ref,
+      detail: { type: input.type, date_pose: posee, reservation: estReservation },
+    });
     refresh();
     return { ok: true };
   } catch (e) {
