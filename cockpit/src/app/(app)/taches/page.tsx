@@ -5,7 +5,7 @@ import { getTr } from "@/lib/i18n/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPersonnel, getPatientsIndex, patientName } from "@/lib/data";
-import { Card } from "@/components/ui/card";
+import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
@@ -62,7 +62,7 @@ export default async function TachesPage({
   if (categorie) query = query.eq("categorie", categorie);
   if (quiEff && quiEff !== "__all__") query = query.contains("responsable", [quiEff]);
 
-  const [{ data }, ouvertes, personnel, patientsIndex, ownerId] = await Promise.all([
+  const [{ data }, ouvertes, personnel, patientsIndex, ownerId, maJournee] = await Promise.all([
     query.order("echeance", { ascending: true, nullsFirst: false }).limit(200),
     // Toutes les tâches ouvertes (pour le résumé par personne, hors filtres)
     supa.from("taches").select("responsable, echeance").neq("statut", "Terminé").limit(500)
@@ -70,6 +70,19 @@ export default async function TachesPage({
     getPersonnel(),
     getPatientsIndex(),
     getOwnerPersonnelId(),
+    // « Ma journée » : MES tâches datées et ouvertes. Volontairement indépendant des filtres
+    // de la table — c'est la liste de la personne connectée, pas une vue de la table.
+    myId
+      ? supa
+          .from("taches")
+          .select("*")
+          .neq("statut", "Terminé")
+          .not("echeance", "is", null)
+          .contains("responsable", [myId])
+          .order("echeance", { ascending: true })
+          .limit(50)
+          .then((r) => (r.data ?? []) as Tache[])
+      : Promise.resolve([] as Tache[]),
   ]);
   let taches = (data ?? []) as Tache[];
 
@@ -96,6 +109,20 @@ export default async function TachesPage({
     parPersonne.set(key, s);
   }
 
+  // « Ma journée » : en retard / aujourd'hui / à venir (7 j). Au-delà d'une semaine, ce
+  // n'est plus une checklist du jour — ça reste dans la table en dessous.
+  const todayISO = new Date(now).toISOString().slice(0, 10);
+  const dans7j = new Date(now + 7 * 86_400_000).toISOString().slice(0, 10);
+  const journee: Record<"retard" | "aujourdhui" | "avenir", Tache[]> = { retard: [], aujourdhui: [], avenir: [] };
+  for (const t of maJournee) {
+    const d = (t.echeance ?? "").slice(0, 10);
+    if (!d) continue;
+    if (d < todayISO) journee.retard.push(t);
+    else if (d === todayISO) journee.aujourdhui.push(t);
+    else if (d <= dans7j) journee.avenir.push(t);
+  }
+  const journeeVide = journee.retard.length + journee.aujourdhui.length + journee.avenir.length === 0;
+
   const canDelete = session.member.is_owner || session.member.role === "admin";
   const actifs = personnel.filter((p) => p.actif);
   const patientsList = Array.from(patientsIndex.values())
@@ -118,6 +145,61 @@ export default async function TachesPage({
         subtitle={tr.taches.subtitle}
         actions={<NouvelleTacheButton personnel={actifs} patients={patientsList} ownerId={ownerId} />}
       />
+
+      {/* Ma journée : chaque membre coche SES tâches, sans toucher aux filtres de la table.
+          Un compte non relié à une fiche Personnel n'a pas de « siennes » — on n'affiche rien. */}
+      {myId && !journeeVide && (
+        <Card>
+          <CardHeader
+            icon={<ListChecks />}
+            title={tr.taches.myDay}
+            subtitle={tr.taches.myDaySub}
+            action={
+              <span className="shrink-0 rounded-full bg-background px-2.5 py-1 text-xs font-semibold text-muted">
+                {tr.taches.myDayCount(journee.retard.length + journee.aujourdhui.length + journee.avenir.length)}
+              </span>
+            }
+          />
+          <CardBody className="space-y-3">
+            {(["retard", "aujourdhui", "avenir"] as const).map((groupe) =>
+              journee[groupe].length === 0 ? null : (
+                <div key={groupe} className="space-y-1">
+                  <div
+                    className={cn(
+                      "text-xs font-semibold uppercase tracking-wide",
+                      groupe === "retard" ? "text-danger" : "text-muted"
+                    )}
+                  >
+                    {tr.taches.myDayGroups[groupe]} · {journee[groupe].length}
+                  </div>
+                  <ul className="space-y-1">
+                    {journee[groupe].map((t) => (
+                      <li key={t.notion_id} className="flex items-center gap-2">
+                        <TacheTermineeButton tacheId={t.notion_id} statut={t.statut} />
+                        <Link
+                          href={`/taches/${t.notion_id}`}
+                          className="min-w-0 flex-1 truncate text-sm hover:text-primary hover:underline"
+                        >
+                          {t.titre}
+                        </Link>
+                        {t.categorie && <StatusBadge value={t.categorie} map={CATEGORIE_TACHE} />}
+                        <span
+                          className={cn(
+                            "shrink-0 whitespace-nowrap text-xs",
+                            groupe === "retard" ? "font-semibold text-danger" : "text-muted"
+                          )}
+                        >
+                          {formatDate(t.echeance, lang)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            )}
+          </CardBody>
+        </Card>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-border bg-surface p-0.5 shadow-sm">
