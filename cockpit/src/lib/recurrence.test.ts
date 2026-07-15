@@ -120,3 +120,68 @@ describe("helpers", () => {
     expect(estRecurrente("Ponctuelle", "weekly")).toBe(false);
   });
 });
+
+/**
+ * Régression : « arrêter la récurrence » doit vraiment l'arrêter.
+ *
+ * Le bug (trouvé en revue adversariale) : arreterRecurrence ne repassait que l'instance
+ * cliquée en « Ponctuelle ». Ses sœurs déjà clôturées restaient « Récurrente » avec le même
+ * groupe, et le filet du cron repartait d'une sœur arbitraire → la série ressuscitait, avec
+ * en prime un doublon de l'instance qu'on venait de fermer.
+ *
+ * La règle qui corrige : ne régénérer QUE depuis l'instance la plus récente du groupe, et
+ * seulement si elle est encore « Récurrente ». On teste ici cette règle de sélection, qui
+ * est le cœur du correctif (rattraperRecurrences lui-même parle à la base).
+ */
+describe("arrêt d'une série — règle de sélection du filet", () => {
+  type Row = { id: string; echeance: string; calendrier: string; statut: string };
+
+  /** Reproduit la décision de rattraperRecurrences : régénérer, ou non ? */
+  const doitRegenerer = (groupe: Row[]): boolean => {
+    const derniere = [...groupe].sort((a, b) => b.echeance.localeCompare(a.echeance))[0];
+    if (!derniere) return false;
+    if (derniere.calendrier !== "Récurrente") return false; // série arrêtée
+    return !groupe.some((r) => r.statut !== "Terminé"); // une instance ouverte ? rien à faire
+  };
+
+  it("série arrêtée puis clôturée → le cron NE ressuscite PAS", () => {
+    const groupe: Row[] = [
+      { id: "a", echeance: "2026-06-01", calendrier: "Récurrente", statut: "Terminé" },
+      { id: "b", echeance: "2026-06-08", calendrier: "Récurrente", statut: "Terminé" },
+      // celle-ci a été arrêtée puis clôturée — c'est la plus récente
+      { id: "c", echeance: "2026-06-15", calendrier: "Ponctuelle", statut: "Terminé" },
+    ];
+    expect(doitRegenerer(groupe)).toBe(false);
+  });
+
+  it("l'ancien comportement (repartir d'une sœur) aurait ressuscité", () => {
+    const groupe: Row[] = [
+      { id: "a", echeance: "2026-06-01", calendrier: "Récurrente", statut: "Terminé" },
+      { id: "b", echeance: "2026-06-08", calendrier: "Récurrente", statut: "Terminé" },
+      { id: "c", echeance: "2026-06-15", calendrier: "Ponctuelle", statut: "Terminé" },
+    ];
+    // Le bug : filtrer sur calendrier='Récurrente' PUIS prendre la première fait remonter
+    // « b » — une sœur — alors que la série a été arrêtée.
+    const soeurRecurrenteLaPlusRecente = groupe
+      .filter((r) => r.calendrier === "Récurrente" && r.statut === "Terminé")
+      .sort((a, b) => b.echeance.localeCompare(a.echeance))[0];
+    expect(soeurRecurrenteLaPlusRecente?.id).toBe("b"); // ← ce que faisait l'ancien code
+    // et la nouvelle règle l'ignore, parce que « b » n'est pas la plus récente du groupe.
+  });
+
+  it("série en cours dont la dernière est clôturée sans successeur → le cron répare", () => {
+    const groupe: Row[] = [
+      { id: "a", echeance: "2026-06-01", calendrier: "Récurrente", statut: "Terminé" },
+      { id: "b", echeance: "2026-06-08", calendrier: "Récurrente", statut: "Terminé" },
+    ];
+    expect(doitRegenerer(groupe)).toBe(true);
+  });
+
+  it("une instance encore ouverte → le cron ne crée rien (idempotence)", () => {
+    const groupe: Row[] = [
+      { id: "a", echeance: "2026-06-01", calendrier: "Récurrente", statut: "Terminé" },
+      { id: "b", echeance: "2026-06-08", calendrier: "Récurrente", statut: "À faire" },
+    ];
+    expect(doitRegenerer(groupe)).toBe(false);
+  });
+});

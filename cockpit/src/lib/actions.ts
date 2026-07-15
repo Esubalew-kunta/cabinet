@@ -425,17 +425,53 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
   }
 }
 
-/** Arrête la récurrence : l'instance courante devient ponctuelle → plus rien n'est engendré. */
+/**
+ * Arrête la récurrence : plus aucune instance ne sera engendrée.
+ *
+ * Le générateur repart toujours de l'instance la PLUS RÉCENTE du groupe (cf.
+ * rattraperRecurrences). Arrêter revient donc à faire repasser cette dernière en
+ * « Ponctuelle » — pas seulement celle sur laquelle on a cliqué, qui peut être une
+ * ancienne instance déjà clôturée. Sans ça, le filet du cron ressusciterait la série.
+ *
+ * L'écriture va dans NOTION (source de vérité des tâches) avant le miroir Supabase :
+ * un correctif Supabase seul serait écrasé au prochain pull, et la série repartirait.
+ */
 export async function arreterRecurrence(tacheId: string): Promise<ActionResult> {
   try {
     const session = await getSession();
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
-    await notionUpdate(tacheId, { Calendrier: P.select("Ponctuelle"), Récurrence: P.select(null) });
-    await supabaseAdmin()
+    const admin = supabaseAdmin();
+
+    const { data: cible } = await admin
       .from("taches")
-      .update({ calendrier: "Ponctuelle", recurrence: null })
-      .eq("notion_id", tacheId);
-    await logAudit(session, { action: "update", area: "taches", targetId: tacheId, detail: { recurrence: "arrêtée" } });
+      .select("notion_id, recurring_group_id")
+      .eq("notion_id", tacheId)
+      .maybeSingle();
+
+    // La cible cliquée + la plus récente du groupe (souvent la même).
+    const aArreter = new Set<string>([tacheId]);
+    if (cible?.recurring_group_id) {
+      const { data: derniere } = await admin
+        .from("taches")
+        .select("notion_id")
+        .eq("recurring_group_id", cible.recurring_group_id)
+        .order("echeance", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (derniere?.notion_id) aArreter.add(derniere.notion_id);
+    }
+
+    for (const id of aArreter) {
+      await notionUpdate(id, { Calendrier: P.select("Ponctuelle"), "Récurrence": P.select(null) });
+      await admin.from("taches").update({ calendrier: "Ponctuelle", recurrence: null }).eq("notion_id", id);
+    }
+
+    await logAudit(session, {
+      action: "update",
+      area: "taches",
+      targetId: tacheId,
+      detail: { recurrence: "arrêtée", instances: aArreter.size },
+    });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -710,8 +746,8 @@ export async function creerExamen(input: {
         retourEffectif: e.restitution_effective,
       }));
 
-      if (!uniteDisponible(ouverts, posee)) {
-        const libre = prochaineDisponibilite(ouverts, posee);
+      if (!uniteDisponible(ouverts, posee, today)) {
+        const libre = prochaineDisponibilite(ouverts, posee, today);
         return {
           ok: false,
           error: libre

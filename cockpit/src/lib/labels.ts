@@ -198,6 +198,7 @@ export const ROLE_TONES: Record<string, Tone> = {
 /** Ordre d'affichage des zones de la matrice de permissions */
 export const AREA_KEYS = [
   "patients_all", "patients_own", "dossiers_all", "dossiers_own", "taches", "taches_perso_dr",
+  "messages",
   "examens", "stock", "planning", "perfusions", "paiements_own", "paiements_all", "finances", "admin_stats",
   "gestion_comptes", "sync",
 ] as const;

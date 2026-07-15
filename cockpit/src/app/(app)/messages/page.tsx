@@ -31,18 +31,40 @@ export default async function MessagesPage() {
   const supa = await supabaseServer();
 
   // RLS : un membre ne reçoit que SA conversation, l'admin les reçoit toutes.
-  const [{ data: convData }, { data: msgData }, personnelMap] = await Promise.all([
+  const [{ data: convData }, personnelMap] = await Promise.all([
     supa.from("conversations").select("*").order("dernier_message_at", { ascending: false }),
-    supa.from("messages").select("*").order("created_at", { ascending: true }).limit(500),
     getPersonnelMap(),
   ]);
-
   const conversations = (convData ?? []) as Conversation[];
-  const messages = (msgData ?? []) as Message[];
 
+  // Les messages RÉCENTS, par conversation.
+  //
+  // Un simple .order(created_at asc).limit(500) global renvoie les 500 messages les PLUS
+  // ANCIENS de toutes les conversations confondues : passé ce seuil, les nouveaux messages
+  // cessent purement et simplement d'apparaître — la boîte gèle sans rien dire.
+  // On prend donc les plus RÉCENTS, puis on rétablit l'ordre chronologique pour l'affichage.
+  const MAX_PAR_FIL = 100;
   const msgsByConv = new Map<string, Message[]>();
-  for (const m of messages) {
-    msgsByConv.set(m.conversation_id, [...(msgsByConv.get(m.conversation_id) ?? []), m]);
+  if (conversations.length > 0) {
+    const { data: msgData } = await supa
+      .from("messages")
+      .select("*")
+      .in(
+        "conversation_id",
+        conversations.map((c) => c.id)
+      )
+      .order("created_at", { ascending: false }) // les plus récents d'abord…
+      .limit(MAX_PAR_FIL * Math.max(1, conversations.length));
+
+    for (const m of ((msgData ?? []) as Message[]).reverse()) {
+      // …puis .reverse() rend l'ordre chronologique attendu à l'écran.
+      const liste = msgsByConv.get(m.conversation_id) ?? [];
+      liste.push(m);
+      msgsByConv.set(m.conversation_id, liste);
+    }
+    for (const [id, liste] of msgsByConv) {
+      if (liste.length > MAX_PAR_FIL) msgsByConv.set(id, liste.slice(-MAX_PAR_FIL));
+    }
   }
 
   const fils = conversations.map((c) => ({

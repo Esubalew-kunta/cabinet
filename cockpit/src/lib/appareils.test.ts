@@ -28,42 +28,42 @@ describe("scénario de la réunion : réserver avant le retour", () => {
   const enCours = pret({ debut: "2026-06-01", retourPrevu: "2026-06-06" });
 
   it("le 4, réserver pour le 7 est ACCEPTÉ", () => {
-    expect(uniteDisponible([enCours], "2026-06-07")).toBe(true);
+    expect(uniteDisponible([enCours], "2026-06-07", "2026-06-04")).toBe(true);
   });
 
   it("réserver pour le 6 (jour du retour) est REFUSÉ — règle du lendemain", () => {
-    expect(uniteDisponible([enCours], "2026-06-06")).toBe(false);
+    expect(uniteDisponible([enCours], "2026-06-06", "2026-06-04")).toBe(false);
   });
 
   it("réserver pendant le prêt est REFUSÉ", () => {
-    expect(uniteDisponible([enCours], "2026-06-04")).toBe(false);
-    expect(uniteDisponible([enCours], "2026-06-01")).toBe(false);
+    expect(uniteDisponible([enCours], "2026-06-04", "2026-06-04")).toBe(false);
+    expect(uniteDisponible([enCours], "2026-06-01", "2026-06-01")).toBe(false);
   });
 
   it("l'unité est annoncée libre à partir du 7", () => {
     expect(libreAPartirDe(enCours)).toBe("2026-06-07");
-    expect(prochaineDisponibilite([enCours], "2026-06-04")).toBe("2026-06-07");
+    expect(prochaineDisponibilite([enCours], "2026-06-04", "2026-06-04")).toBe("2026-06-07");
   });
 });
 
 describe("pretBloque", () => {
   it("un prêt rendu ne bloque plus rien", () => {
     const rendu = pret({ retourEffectif: "2026-06-05" });
-    expect(pretBloque(rendu, "2026-06-02")).toBe(false);
-    expect(uniteDisponible([rendu], "2026-06-01")).toBe(true);
+    expect(pretBloque(rendu, "2026-06-02", "2026-06-02")).toBe(false);
+    expect(uniteDisponible([rendu], "2026-06-01", "2026-06-01")).toBe(true);
   });
 
   it("un prêt ouvert SANS retour prévu bloque toujours — fin inconnue", () => {
     const sansFin = pret({ retourPrevu: null });
-    expect(pretBloque(sansFin, "2027-01-01")).toBe(true);
+    expect(pretBloque(sansFin, "2027-01-01", "2026-06-01")).toBe(true);
     expect(libreAPartirDe(sansFin)).toBeNull();
-    expect(prochaineDisponibilite([sansFin], "2026-06-04")).toBeNull();
+    expect(prochaineDisponibilite([sansFin], "2026-06-04", "2026-06-04")).toBeNull();
   });
 
   it("accepte des timestamps ISO complets (colonnes date de Supabase)", () => {
     const p = pret({ retourPrevu: "2026-06-06T00:00:00+00:00" });
-    expect(pretBloque(p, "2026-06-07T00:00:00+00:00")).toBe(false);
-    expect(pretBloque(p, "2026-06-06T00:00:00+00:00")).toBe(true);
+    expect(pretBloque(p, "2026-06-07T00:00:00+00:00", "2026-06-04")).toBe(false);
+    expect(pretBloque(p, "2026-06-06T00:00:00+00:00", "2026-06-04")).toBe(true);
   });
 });
 
@@ -74,26 +74,26 @@ describe("prochaineDisponibilite avec plusieurs prêts", () => {
       pret({ id: "b", retourPrevu: "2026-06-10" }),
       pret({ id: "c", retourPrevu: "2026-06-02" }),
     ];
-    expect(prochaineDisponibilite(prets, "2026-06-01")).toBe("2026-06-11");
+    expect(prochaineDisponibilite(prets, "2026-06-01", "2026-06-01")).toBe("2026-06-11");
   });
 
   it("rien ne bloque → la date demandée elle-même", () => {
-    expect(prochaineDisponibilite([], "2026-06-04")).toBe("2026-06-04");
+    expect(prochaineDisponibilite([], "2026-06-04", "2026-06-04")).toBe("2026-06-04");
     const rendu = pret({ retourEffectif: "2026-06-03" });
-    expect(prochaineDisponibilite([rendu], "2026-06-04")).toBe("2026-06-04");
+    expect(prochaineDisponibilite([rendu], "2026-06-04", "2026-06-04")).toBe("2026-06-04");
   });
 
   it("un seul prêt sans fin connue rend le tout indéterminable", () => {
     const prets = [pret({ id: "a", retourPrevu: "2026-06-06" }), pret({ id: "b", retourPrevu: null })];
-    expect(prochaineDisponibilite(prets, "2026-06-01")).toBeNull();
+    expect(prochaineDisponibilite(prets, "2026-06-01", "2026-06-01")).toBeNull();
   });
 
   it("réservations dos à dos : le lendemain de l'une est libre pour l'autre", () => {
     const premier = pret({ id: "a", debut: "2026-06-01", retourPrevu: "2026-06-06" });
-    expect(uniteDisponible([premier], "2026-06-07")).toBe(true);
+    expect(uniteDisponible([premier], "2026-06-07", "2026-06-01")).toBe(true);
     const second = pret({ id: "b", debut: "2026-06-07", retourPrevu: "2026-06-12" });
-    expect(uniteDisponible([premier, second], "2026-06-13")).toBe(true);
-    expect(uniteDisponible([premier, second], "2026-06-12")).toBe(false);
+    expect(uniteDisponible([premier, second], "2026-06-13", "2026-06-01")).toBe(true);
+    expect(uniteDisponible([premier, second], "2026-06-12", "2026-06-01")).toBe(false);
   });
 });
 
@@ -181,5 +181,50 @@ describe("retardBloqueUneReservation", () => {
 
   it("faux si personne n'attend — le retard seul ne bloque rien", () => {
     expect(retardBloqueUneReservation(enRetard, [], "2026-06-08")).toBe(false);
+  });
+});
+
+/**
+ * Régression (revue adversariale) : un appareil EN RETARD n'est pas disponible.
+ *
+ * Le bug : la disponibilité ne se comparait qu'au retour prévu. Un prêt attendu le 6 juin
+ * et toujours dehors le 15 laissait « 15 > 6 » → l'appareil paraissait libre… alors qu'il
+ * est chez le patient depuis neuf jours. L'ancien code (etat !== "Au cabinet") bloquait ce
+ * cas ; le passage aux plages l'avait rouvert.
+ *
+ * L'hypothèse « rendu à l'heure » vaut pour le FUTUR. Une fois la date passée sans retour,
+ * elle est démentie par les faits.
+ */
+describe("prêt en retard — l'appareil reste immobilisé", () => {
+  const enRetard = pret({ debut: "2026-06-01", retourPrevu: "2026-06-06" }); // jamais rendu
+
+  it("le 15 juin, réserver pour le 15 est REFUSÉ (le boîtier est absent)", () => {
+    expect(uniteDisponible([enRetard], "2026-06-15", "2026-06-15")).toBe(false);
+  });
+
+  it("le 15 juin, réserver pour le 16 est accepté (on suppose un retour aujourd'hui)", () => {
+    expect(uniteDisponible([enRetard], "2026-06-16", "2026-06-15")).toBe(true);
+  });
+
+  it("la prochaine dispo d'un prêt en retard est demain, pas une date passée", () => {
+    expect(prochaineDisponibilite([enRetard], "2026-06-15", "2026-06-15")).toBe("2026-06-16");
+  });
+
+  it("le cas de la réunion n'est pas affecté : pas encore en retard", () => {
+    // Aujourd'hui le 4, retour prévu le 6 : le 7 reste libre, le 6 reste bloqué.
+    expect(uniteDisponible([enRetard], "2026-06-07", "2026-06-04")).toBe(true);
+    expect(uniteDisponible([enRetard], "2026-06-06", "2026-06-04")).toBe(false);
+    expect(prochaineDisponibilite([enRetard], "2026-06-04", "2026-06-04")).toBe("2026-06-07");
+  });
+
+  it("un prêt rendu, même en retard, ne bloque plus", () => {
+    const rendu = pret({ debut: "2026-06-01", retourPrevu: "2026-06-06", retourEffectif: "2026-06-09" });
+    expect(uniteDisponible([rendu], "2026-06-15", "2026-06-15")).toBe(true);
+  });
+
+  it("aujourd'hui est requis : c'est lui qui distingue « à venir » de « en retard »", () => {
+    // Même prêt, même date de pose demandée — seule la date du jour change le verdict.
+    expect(uniteDisponible([enRetard], "2026-06-07", "2026-06-04")).toBe(true); // pas encore en retard
+    expect(uniteDisponible([enRetard], "2026-06-07", "2026-06-15")).toBe(false); // en retard depuis 9 j
   });
 });

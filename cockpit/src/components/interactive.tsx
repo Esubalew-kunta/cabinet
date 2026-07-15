@@ -34,7 +34,7 @@ import { uniteDisponible, prochaineDisponibilite, type Pret } from "@/lib/appare
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Minus, Package, Pencil, Plus, Repeat, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import {
   verifierDossier,
   devérifierDossier,
@@ -1161,7 +1161,7 @@ export function NouvelExamenButton({
   // permet de réserver un appareil encore dehors mais rendu d'ici là.
   const horsService = (u: Unite) => Boolean(u.etat) && !["Au cabinet", "Dehors"].includes(u.etat!);
   const freeOf = (t: string, date: string) =>
-    unites.filter((u) => u.type === t && !horsService(u) && uniteDisponible(u.prets, date));
+    unites.filter((u) => u.type === t && !horsService(u) && uniteDisponible(u.prets, date, today));
   const ofType = (t: string) => unites.filter((u) => u.type === t && !horsService(u));
 
   const initialType = TYPES_APPAREIL.find((t) => freeOf(t, today).length > 0) ?? TYPES_APPAREIL[0];
@@ -1178,7 +1178,7 @@ export function NouvelExamenButton({
   // qu'une liste vide quand tout est sorti (« Holter n°2 — libre à partir du 7 juin »).
   const occupees = ofType(type)
     .filter((u) => !libres.some((l) => l.notion_id === u.notion_id))
-    .map((u) => ({ u, libre: prochaineDisponibilite(u.prets, pose) }))
+    .map((u) => ({ u, libre: prochaineDisponibilite(u.prets, pose, today) }))
     .sort((a, b) => (a.libre ?? "9999").localeCompare(b.libre ?? "9999"));
 
   // Changer la date de pose peut invalider l'unité choisie : on la libère plutôt que
@@ -1253,7 +1253,8 @@ export function NouvelExamenButton({
                 ))}
                 {occupees.map(({ u, libre }) => (
                   <option key={u.notion_id} value={u.notion_id} disabled>
-                    {u.ref_appareil} — {libre ? tr.examens.freeFrom(libre) : tr.examens.freeUnknown}
+                    {/* formatDate : sans lui, l'ISO brut « 2026-06-07 » s'afficherait à l'écran */}
+                    {u.ref_appareil} — {libre ? tr.examens.freeFrom(formatDate(libre, lang)) : tr.examens.freeUnknown}
                   </option>
                 ))}
               </Select>

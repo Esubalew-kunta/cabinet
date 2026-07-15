@@ -61,38 +61,64 @@ export function libreAPartirDe(p: Pret): string | null {
 }
 
 /**
- * Un prêt ouvert bloque-t-il une pose au `datePose` demandé ?
+ * Fin effective d'immobilisation d'un prêt ouvert : le retour prévu, MAIS jamais dans le
+ * passé si l'appareil n'est pas revenu.
  *
- * Règle : bloque tant que `datePose <= retourPrevu` — le lendemain passe, le jour même non.
- *   existant [1er juin → 6 juin], demande le 7  → 7 > 6  → libre  ✅ (le cas de la réunion)
- *   existant [1er juin → 6 juin], demande le 6  → 6 <= 6 → bloqué ✅ (règle du lendemain)
- * Un prêt ouvert sans retour prévu bloque toujours : fin inconnue.
+ * Un prêt en retard (retour prévu dépassé, aucun retour effectif) immobilise toujours
+ * l'appareil : il est physiquement chez le patient. Ne comparer qu'au retour prévu ferait
+ * apparaître libre aujourd'hui un boîtier absent depuis une semaine. L'hypothèse « rendu à
+ * l'heure » vaut pour le FUTUR ; une fois la date passée sans retour, elle est démentie.
  */
-export function pretBloque(p: Pret, datePose: string): boolean {
-  if (!pretOuvert(p)) return false;
-  const pose = jour(datePose)!;
-  if (!p.retourPrevu) return true;
-  return pose <= jour(p.retourPrevu)!;
-}
-
-/** L'unité est-elle réservable à cette date, compte tenu de tous ses prêts ? */
-export function uniteDisponible(prets: Pret[], datePose: string): boolean {
-  return !prets.some((p) => pretBloque(p, datePose));
+function finImmobilisation(p: Pret, aujourdhui: string): string | null {
+  if (!p.retourPrevu) return null; // fin inconnue
+  const prevu = jour(p.retourPrevu)!;
+  const today = jour(aujourdhui)!;
+  return prevu >= today ? prevu : today; // en retard → bloque au moins jusqu'à aujourd'hui
 }
 
 /**
- * Première date de pose possible : aujourd'hui/`aPartirDe` si rien ne bloque, sinon le
- * lendemain du dernier retour prévu qui bloque. `null` si indéterminable (prêt ouvert
- * sans retour prévu) → l'UI doit dire « indisponible », pas inventer une date.
+ * Un prêt ouvert bloque-t-il une pose au `datePose` demandé ?
+ *
+ * Règle : bloque tant que `datePose <= fin d'immobilisation` — le lendemain passe, le jour
+ * même non.
+ *   existant [1er juin → 6 juin], aujourd'hui le 4, demande le 7 → 7 > 6  → libre  ✅ (réunion)
+ *   existant [1er juin → 6 juin], aujourd'hui le 4, demande le 6 → 6 <= 6 → bloqué ✅ (lendemain)
+ *   existant [1er juin → 6 juin] TOUJOURS DEHORS le 15, demande le 15 → bloqué ✅ (en retard)
+ * Un prêt ouvert sans retour prévu bloque toujours : fin inconnue.
  */
-export function prochaineDisponibilite(prets: Pret[], aPartirDe: string): string | null {
-  const bloquants = prets.filter((p) => pretBloque(p, aPartirDe));
+export function pretBloque(p: Pret, datePose: string, aujourdhui: string): boolean {
+  if (!pretOuvert(p)) return false;
+  const pose = jour(datePose)!;
+  const fin = finImmobilisation(p, aujourdhui);
+  if (!fin) return true; // pas de retour prévu → fin inconnue
+  return pose <= fin;
+}
+
+/**
+ * L'unité est-elle réservable à cette date, compte tenu de tous ses prêts ?
+ *
+ * `aujourdhui` est REQUIS à dessein. En le laissant défaillir sur `datePose`, tout prêt
+ * passé paraissait « en retard » vu depuis une pose lointaine et bloquait à tort — la
+ * réservation dos à dos cassait. Le retard est un fait du présent : il faut le vrai jour.
+ */
+export function uniteDisponible(prets: Pret[], datePose: string, aujourdhui: string): boolean {
+  return !prets.some((p) => pretBloque(p, datePose, aujourdhui));
+}
+
+/**
+ * Première date de pose possible : `aPartirDe` si rien ne bloque, sinon le lendemain de la
+ * dernière fin d'immobilisation. `null` si indéterminable (prêt ouvert sans retour prévu)
+ * → l'UI doit dire « indisponible », pas inventer une date.
+ */
+export function prochaineDisponibilite(prets: Pret[], aPartirDe: string, aujourdhui: string): string | null {
+  const today = aujourdhui;
+  const bloquants = prets.filter((p) => pretBloque(p, aPartirDe, today));
   if (bloquants.length === 0) return jour(aPartirDe);
   if (bloquants.some((p) => !p.retourPrevu)) return null; // fin inconnue
 
-  // Le plus tardif des retours prévus commande.
+  // La plus tardive des fins d'immobilisation commande.
   const dernier = bloquants
-    .map((p) => jour(p.retourPrevu)!)
+    .map((p) => finImmobilisation(p, today)!)
     .sort()
     .at(-1)!;
   return lendemain(dernier);

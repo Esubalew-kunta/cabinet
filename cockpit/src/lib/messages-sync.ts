@@ -58,12 +58,18 @@ export async function drainMessagesToNotion(): Promise<DrainResult> {
       if (!conv) continue;
 
       // Borné : une transcription Notion est un miroir de lecture, pas une archive.
-      const { data: msgs } = await admin
+      //
+      // ascending: FALSE — la propriété s'appelle « Derniers échanges ». Trier ascendant
+      // puis limiter renvoie les 200 messages les plus ANCIENS : passé 200, la page Notion
+      // se figerait sur le début de la conversation et n'afficherait jamais la suite.
+      // On prend les plus récents, puis on rétablit l'ordre chronologique.
+      const { data: recents } = await admin
         .from("messages")
         .select("id, corps, est_admin, created_at")
         .eq("conversation_id", conv.id)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: false })
         .limit(200);
+      const msgs = (recents ?? []).slice().reverse();
 
       const nom = nameOf.get(row.personnel_notion_id) ?? "?";
       const transcript = (msgs ?? [])

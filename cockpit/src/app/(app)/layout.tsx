@@ -30,21 +30,44 @@ async function getTaskCounts(): Promise<{ open: number; today: number; overdue: 
 }
 
 /**
- * Messages non lus pour la pastille du menu (décision réunion : « dans l'onglet chat,
- * afficher le nombre de nouveaux messages »).
+ * Nombre de MESSAGES non lus pour la pastille du menu.
  *
- * Non lu = un message est arrivé après le filigrane de lecture du lecteur.
- * RLS appliquée : un membre ne compte que SA conversation, l'admin les compte toutes.
+ * Décision réunion : « dans l'onglet chat, afficher le nombre de nouveaux messages ».
+ * Donc on compte des messages, pas des conversations : compter les conversations
+ * afficherait « 1 » à une secrétaire ayant dix messages en attente — et au plus « 1 »,
+ * puisqu'elle n'en a qu'une.
+ *
+ * Non lu = message reçu après le filigrane de lecture du lecteur, et écrit par l'AUTRE
+ * partie (ses propres messages ne sont jamais « nouveaux » pour soi).
+ * RLS appliquée : un membre ne voit que SA conversation, l'admin les voit toutes.
  */
 async function getUnreadMessages(isAdmin: boolean): Promise<number> {
   const supa = await supabaseServer();
-  const { data } = await supa
+  const { data: convs } = await supa
     .from("conversations")
-    .select("dernier_message_at, lu_admin_at, lu_membre_at")
+    .select("id, dernier_message_at, lu_admin_at, lu_membre_at")
     .limit(200);
-  return (data ?? []).filter((c) => {
+
+  const enAttente = (convs ?? []).filter((c) => {
     const lu = isAdmin ? c.lu_admin_at : c.lu_membre_at;
     return !lu || new Date(c.dernier_message_at) > new Date(lu);
+  });
+  if (enAttente.length === 0) return 0;
+
+  const { data: msgs } = await supa
+    .from("messages")
+    .select("conversation_id, est_admin, created_at")
+    .in(
+      "conversation_id",
+      enAttente.map((c) => c.id)
+    )
+    .limit(500);
+
+  const luDe = new Map(enAttente.map((c) => [c.id, isAdmin ? c.lu_admin_at : c.lu_membre_at]));
+  return (msgs ?? []).filter((m) => {
+    if (m.est_admin === isAdmin) return false; // mes propres messages
+    const lu = luDe.get(m.conversation_id);
+    return !lu || new Date(m.created_at as string) > new Date(lu);
   }).length;
 }
 

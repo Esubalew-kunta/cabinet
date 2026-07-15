@@ -46,14 +46,21 @@ export async function genererInstanceSuivante(tacheId: string): Promise<Instance
  * Filet du cron : répare les séries dont la dernière instance est « Terminé » sans
  * successeur (échec Notion lors de la clôture, p. ex.).
  *
- * Ne regarde que les tâches récurrentes portant un groupe — donc un scan borné.
+ * ⚠ La règle qui compte : on ne régénère QUE depuis l'instance la plus récente du groupe,
+ * et seulement si elle est encore « Récurrente ».
+ *
+ * Sans ça, arrêter une récurrence ne l'arrêtait pas. « Arrêter » ne touche que l'instance
+ * courante ; ses sœurs déjà clôturées restent « Récurrente » avec le même groupe. Un filet
+ * qui repartait d'une sœur arbitraire ressuscitait donc la série au tour de cron suivant —
+ * alors que l'utilisatrice venait explicitement de l'arrêter. Repartir du plus récent rend
+ * l'arrêt effectif, et supprime la seule façon de terminer une série qui n'en était pas une.
  */
 export async function rattraperRecurrences(): Promise<{ crees: number }> {
   const admin = supabaseAdmin();
 
   const { data: terminees } = await admin
     .from("taches")
-    .select(CHAMPS)
+    .select("recurring_group_id")
     .eq("calendrier", "Récurrente")
     .eq("statut", "Terminé")
     .not("recurring_group_id", "is", null)
@@ -62,17 +69,26 @@ export async function rattraperRecurrences(): Promise<{ crees: number }> {
 
   if (!terminees?.length) return { crees: 0 };
 
-  // Une seule instance (la plus récente) par groupe : creerSuivante revérifie de toute
-  // façon qu'aucune n'est ouverte, mais autant ne pas la solliciter N fois par série.
-  const parGroupe = new Map<string, any>();
-  for (const t of terminees as any[]) {
-    if (!parGroupe.has(t.recurring_group_id)) parGroupe.set(t.recurring_group_id, t);
-  }
+  const groupes = Array.from(new Set((terminees as { recurring_group_id: string }[]).map((t) => t.recurring_group_id)));
 
   let crees = 0;
-  for (const t of parGroupe.values()) {
+  for (const groupId of groupes) {
     try {
-      if (await creerSuivante(t)) crees++;
+      // L'instance la plus récente du groupe, quel que soit son calendrier ou son statut.
+      const { data: derniere } = await admin
+        .from("taches")
+        .select(CHAMPS)
+        .eq("recurring_group_id", groupId)
+        .order("echeance", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!derniere) continue;
+
+      // Série arrêtée (la dernière est repassée « Ponctuelle ») → ne rien ressusciter.
+      // Série encore ouverte → creerSuivante s'en apercevra et ne fera rien.
+      if ((derniere as any).calendrier !== "Récurrente") continue;
+
+      if (await creerSuivante(derniere as any)) crees++;
     } catch {
       // best-effort : une série cassée ne doit pas faire échouer la sync ni les autres
     }
