@@ -187,6 +187,7 @@ export const SOURCES: SourceSpec[] = [
       { prop: "Bilan bio", column: "bilan_bio", kind: "select" },
       { prop: "Notes", column: "notes", kind: "rich_text" },
       { prop: "Patient", column: "patient", kind: "relation" },
+      { prop: "Praticien", column: "praticien", kind: "relation" },
       { prop: "Paiement", column: "paiement", kind: "relation" },
     ],
   },

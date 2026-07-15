@@ -1617,8 +1617,11 @@ export function FacturerPenaliteButton({ examenId, days, amount }: { examenId: s
 
 export function NouvellePerfusionButton({
   patients,
+  praticiens = [],
 }: {
   patients: { notion_id: string; nom: string | null }[];
+  /** Qui peut faire la séance. Sans praticien, aucune part n'est calculable. */
+  praticiens?: { notion_id: string; nom: string | null }[];
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -1631,6 +1634,7 @@ export function NouvellePerfusionButton({
   const [bio, setBio] = useState("");
   const [hono, setHono] = useState("");
   const [forfait, setForfait] = useState("");
+  const [praticien, setPraticien] = useState("");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1644,10 +1648,11 @@ export function NouvellePerfusionButton({
           bilan_bio: bio || null,
           honoraire_ipa: hono ? Number(hono) : null,
           forfait: forfait ? Number(forfait) : null,
+          praticien: praticien || null,
         }),
       () => {
         setOpen(false);
-        setComposants(""); setDuree(""); setHono(""); setForfait("");
+        setComposants(""); setDuree(""); setHono(""); setForfait(""); setPraticien("");
       },
       tr.toast.perfusionCreated
     );
@@ -1668,6 +1673,16 @@ export function NouvellePerfusionButton({
               ))}
             </Select>
           </Field>
+          {praticiens.length > 0 && (
+            <Field label={tr.perfusions.practitioner} hint={tr.perfusions.practitionerHint}>
+              <Select value={praticien} onChange={(e) => setPraticien(e.target.value)}>
+                <option value="">{tr.common.choose}</option>
+                {praticiens.map((p) => (
+                  <option key={p.notion_id} value={p.notion_id}>{p.nom}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.perfusions.dateLabel}>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
@@ -1707,8 +1722,13 @@ export function NouvellePerfusionButton({
 /** Édition d'une séance de perfusion enregistrée (le patient reste fixe). */
 export function ModifierPerfusionButton({
   perfusion,
+  praticiens = [],
 }: {
-  perfusion: Pick<Perfusion, "notion_id" | "date_perfusion" | "composants" | "duree" | "bilan_bio" | "honoraire_ipa" | "notes">;
+  perfusion: Pick<
+    Perfusion,
+    "notion_id" | "date_perfusion" | "composants" | "duree" | "bilan_bio" | "honoraire_ipa" | "notes" | "praticien"
+  >;
+  praticiens?: { notion_id: string; nom: string | null }[];
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -1719,6 +1739,7 @@ export function ModifierPerfusionButton({
   const [bio, setBio] = useState(perfusion.bilan_bio ?? "");
   const [hono, setHono] = useState(perfusion.honoraire_ipa != null ? String(perfusion.honoraire_ipa) : "");
   const [notes, setNotes] = useState(perfusion.notes ?? "");
+  const [praticien, setPraticien] = useState(perfusion.praticien?.[0] ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1731,6 +1752,7 @@ export function ModifierPerfusionButton({
           bilan_bio: bio || null,
           honoraire_ipa: hono ? Number(hono) : null,
           notes: notes || null,
+          praticien: praticien || null,
         }),
       () => setOpen(false),
       tr.toast.saved
@@ -1749,6 +1771,16 @@ export function ModifierPerfusionButton({
       </button>
       <Dialog open={open} onClose={() => setOpen(false)} title={tr.perfusions.editSession} icon={<Pencil />}>
         <form onSubmit={submit} className="space-y-3">
+          {praticiens.length > 0 && (
+            <Field label={tr.perfusions.practitioner} hint={tr.perfusions.practitionerHint}>
+              <Select value={praticien} onChange={(e) => setPraticien(e.target.value)}>
+                <option value="">{tr.common.choose}</option>
+                {praticiens.map((p) => (
+                  <option key={p.notion_id} value={p.notion_id}>{p.nom}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.perfusions.dateLabel}>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />

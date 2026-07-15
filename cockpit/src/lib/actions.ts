@@ -1345,6 +1345,7 @@ export async function creerPerfusion(input: {
   bilan_bio?: string | null;
   honoraire_ipa?: number | null;
   forfait?: number | null; // montant facturé au patient (350-400 €)
+  praticien?: string | null; // qui a fait la séance → à qui revient la part
 }): Promise<ActionResult> {
   try {
     const session = await getSession();
@@ -1363,6 +1364,7 @@ export async function creerPerfusion(input: {
     if (input.duree) props["Durée"] = P.text(input.duree);
     if (input.bilan_bio) props["Bilan bio"] = P.select(input.bilan_bio);
     if (input.honoraire_ipa != null) props["Honoraire IPA"] = P.number(input.honoraire_ipa);
+    if (input.praticien) props["Praticien"] = P.relation([input.praticien]);
 
     const perfusionId = await notionCreate("perfusions", props);
     await admin.from("perfusions").insert({
@@ -1374,6 +1376,7 @@ export async function creerPerfusion(input: {
       bilan_bio: input.bilan_bio ?? null,
       honoraire_ipa: input.honoraire_ipa ?? null,
       patient: [input.patient],
+      praticien: input.praticien ? [input.praticien] : null,
       created_time: new Date().toISOString(),
     });
 
@@ -1390,6 +1393,8 @@ export async function creerPerfusion(input: {
         Perfusion: P.relation([perfusionId]),
       };
       if (input.honoraire_ipa != null) payProps["Notes"] = P.text(`Hono IPA : ${input.honoraire_ipa} €`);
+      // Le praticien voyage jusqu'au paiement : c'est là que Finances regarde qui a soigné.
+      if (input.praticien) payProps["Responsable"] = P.relation([input.praticien]);
       const payId = await notionCreate("paiements", payProps);
       await admin.from("paiements").insert({
         notion_id: payId,
@@ -1401,6 +1406,7 @@ export async function creerPerfusion(input: {
         notes: input.honoraire_ipa != null ? `Hono IPA : ${input.honoraire_ipa} €` : null,
         patient: [input.patient],
         perfusion: [perfusionId],
+        responsable: input.praticien ? [input.praticien] : null,
         created_time: new Date().toISOString(),
       });
       // lien retour Perfusion → Paiement
@@ -1425,6 +1431,7 @@ export async function majPerfusion(
     bilan_bio?: string | null;
     honoraire_ipa?: number | null;
     notes?: string | null;
+    praticien?: string | null;
   }
 ): Promise<ActionResult> {
   try {
@@ -1437,6 +1444,7 @@ export async function majPerfusion(
       "Bilan bio": P.select(input.bilan_bio ?? null),
       "Honoraire IPA": P.number(input.honoraire_ipa ?? null),
       "Notes": P.text(input.notes ?? null),
+      "Praticien": P.relation(input.praticien ? [input.praticien] : []),
     });
     await supabaseAdmin()
       .from("perfusions")
@@ -1447,6 +1455,7 @@ export async function majPerfusion(
         bilan_bio: input.bilan_bio || null,
         honoraire_ipa: input.honoraire_ipa ?? null,
         notes: input.notes || null,
+        praticien: input.praticien ? [input.praticien] : null,
       })
       .eq("notion_id", perfusionId);
     await logAudit(session, { action: "update", area: "perfusions", targetId: perfusionId });

@@ -127,6 +127,10 @@ export type Paiement = {
   notes: string | null;
   patient: string[];
   responsable: string[];
+  /** La séance de perfusion facturée par cette ligne, s'il y en a une. */
+  perfusion: string[] | null;
+  /** L'examen facturé par cette ligne (pénalité de retard, etc.). */
+  examen: string[] | null;
 };
 
 export type Perfusion = {
@@ -139,6 +143,8 @@ export type Perfusion = {
   bilan_bio: string | null;
   notes: string | null;
   patient: string[];
+  /** Qui a fait la séance — celui à qui la part revient. */
+  praticien: string[] | null;
 };
 
 export type Article = {
