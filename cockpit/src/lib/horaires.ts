@@ -117,6 +117,32 @@ export function monthDates(anchorDate: string): string[] {
   return Array.from({ length: last }, (_, i) => isoDate(new Date(y, m, i + 1)));
 }
 
+// ---------- Période affichée (onglet semaine / mois) ----------
+/** Les jours à agréger pour la période affichée. */
+export function periodDates(view: "week" | "month", anchorDate: string): string[] {
+  return view === "month" ? monthDates(anchorDate) : weekDates(anchorDate);
+}
+
+/**
+ * Les blocs à agréger pour la période affichée.
+ *
+ * La page charge toutes les semaines qui *touchent* le mois (lundi de la 1re → dimanche de la
+ * dernière) : en vue mois, filtrer sur le mois de l'ancre est obligatoire, sinon les jours
+ * débordants des mois voisins seraient comptés dans les totaux.
+ */
+export function periodBlocks<T extends { date: string }>(
+  view: "week" | "month",
+  anchorDate: string,
+  blocks: T[]
+): T[] {
+  if (view === "month") {
+    const ym = anchorDate.slice(0, 7);
+    return blocks.filter((b) => b.date.slice(0, 7) === ym);
+  }
+  const week = weekDates(anchorDate);
+  return blocks.filter((b) => b.date >= week[0] && b.date <= week[6]);
+}
+
 // ---------- Intervalles & couverture ----------
 export type Interval = { start: number; end: number }; // minutes depuis minuit
 

@@ -26,6 +26,8 @@ import {
   isValidRange,
   overlaps,
   fromMinutes,
+  periodDates,
+  periodBlocks,
 } from "@/lib/horaires";
 import type { Horaire } from "@/lib/types";
 
@@ -79,6 +81,10 @@ export function HorairesBoard(props: Props) {
 
   const week = weekDates(anchor);
   const weekBlocks = shown.filter((b) => b.date >= week[0] && b.date <= week[6]);
+
+  // Totaux du bas : suivent l'onglet semaine/mois (voir periodBlocks pour le débord de mois).
+  const panelDays = periodDates(view, anchor);
+  const panelBlocks = periodBlocks(view, anchor, shown);
 
   const openAdd = (date: string, secId?: string, start?: string) =>
     setDialog({ mode: "add", date, secId: secId ?? (myId && !canEditAll ? myId : secretaires[0]?.id ?? ""), debut: start ?? opStart, fin: fromMinutes(toMinutes(start ?? opStart) + 120) });
@@ -151,7 +157,7 @@ export function HorairesBoard(props: Props) {
               onDay={(d) => go(d, "week")} />
           )}
 
-          <CoveragePanel dict={dict} lang={lang} days={week} blocks={weekBlocks} secretaires={filter === "all" ? secretaires : secretaires.filter((s) => s.id === filter)}
+          <CoveragePanel dict={dict} lang={lang} view={view} days={panelDays} blocks={panelBlocks} secretaires={filter === "all" ? secretaires : secretaires.filter((s) => s.id === filter)}
             opStart={opStart} opEnd={opEnd} />
         </>
       )}
@@ -436,9 +442,9 @@ function MonthView({ dict, lang, anchor, blocks, secretaires, onDay }: {
   );
 }
 
-// ---------- Couverture & analytics (semaine ancrée) ----------
-function CoveragePanel({ dict, lang, days, blocks, secretaires, opStart, opEnd }: {
-  dict: Dict; lang: Lang; days: string[]; blocks: Horaire[]; secretaires: Sec[]; opStart: string; opEnd: string;
+// ---------- Couverture & analytics (période affichée : semaine ou mois) ----------
+function CoveragePanel({ dict, lang, view, days, blocks, secretaires, opStart, opEnd }: {
+  dict: Dict; lang: Lang; view: "week" | "month"; days: string[]; blocks: Horaire[]; secretaires: Sec[]; opStart: string; opEnd: string;
 }) {
   const oS = toMinutes(opStart), oE = toMinutes(opEnd);
   const span = Math.max(60, oE - oS);
@@ -452,7 +458,7 @@ function CoveragePanel({ dict, lang, days, blocks, secretaires, opStart, opEnd }
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label={dict.statStaffed} value={dict.hoursShort(staffed)} />
+        <StatCard label={dict.statStaffed(view)} value={dict.hoursShort(staffed)} />
         <StatCard label={dict.statAvg} value={dict.hoursShort(avg)} />
         <StatCard label={dict.statGaps} value={String(gapCount)} tone={gapCount > 0 ? "warning" : "success"} />
       </div>
@@ -483,7 +489,7 @@ function CoveragePanel({ dict, lang, days, blocks, secretaires, opStart, opEnd }
       </Card>
 
       <Card>
-        <CardHeader icon={<CalendarRange />} title={dict.perSecretaryTitle} />
+        <CardHeader icon={<CalendarRange />} title={dict.perSecretaryTitle(view)} />
         <div className="divide-y divide-border">
           {perSec.map((s) => (
             <div key={s.id} className="flex items-center gap-3 px-4 py-2">
