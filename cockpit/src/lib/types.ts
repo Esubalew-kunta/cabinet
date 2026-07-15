@@ -58,11 +58,13 @@ export type Tache = {
   created_time: string | null;
   titre: string | null;
   statut: string | null;
-  calendrier: string | null;
-  recurrence: string | null;
+  calendrier: string | null;          // Ponctuelle | Récurrente
+  recurrence: string | null;          // libellé Notion : Quotidienne | Jours ouvrés | …
+  recurring_group_id: string | null;  // relie les instances d'une série récurrente
   echeance: string | null;
   priorite: string | null;
-  domaine: string | null;
+  domaine: string | null;             // Clinique | Professionnel | Personnel | Projets (porte la RLS)
+  categorie: string | null;           // Administration | Patient | Mobilier | Paiement
   note_cloture: string | null;
   note: string | null;
   responsable: string[];

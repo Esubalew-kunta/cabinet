@@ -7,50 +7,16 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { notion, withNotionRetry } from "@/lib/notion/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSession, can } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { SOURCES } from "@/lib/notion/sources";
+import { P, notionCreate, notionUpdate, notionArchive } from "@/lib/notion/write";
 import { isValidRange, isoWeek, addDays } from "@/lib/horaires";
+import { estRecurrente } from "@/lib/recurrence";
+import { genererInstanceSuivante } from "@/lib/taches-recurrence";
 import { randomUUID } from "node:crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const ds = (table: string) => {
-  const s = SOURCES.find((s) => s.table === table);
-  if (!s) throw new Error(`source inconnue: ${table}`);
-  return s.dataSourceId;
-};
-
-// ---------- constructeurs de propriétés Notion ----------
-const P = {
-  title: (v: string) => ({ title: [{ text: { content: v } }] }),
-  text: (v: string | null) => ({ rich_text: v ? [{ text: { content: v } }] : [] }),
-  select: (v: string | null) => ({ select: v ? { name: v } : null }),
-  multi: (v: string[]) => ({ multi_select: v.map((name) => ({ name })) }),
-  date: (v: string | null) => ({ date: v ? { start: v } : null }),
-  checkbox: (v: boolean) => ({ checkbox: v }),
-  number: (v: number | null) => ({ number: v }),
-  phone: (v: string | null) => ({ phone_number: v || null }),
-  email: (v: string | null) => ({ email: v || null }),
-  url: (v: string | null) => ({ url: v || null }),
-  relation: (ids: string[]) => ({ relation: ids.map((id) => ({ id })) }),
-};
-
-async function notionUpdate(pageId: string, properties: Record<string, any>) {
-  await withNotionRetry(() => notion().pages.update({ page_id: pageId, properties }));
-}
-
-async function notionCreate(table: string, properties: Record<string, any>): Promise<string> {
-  const res: any = await withNotionRetry(() =>
-    notion().pages.create({
-      parent: { type: "data_source_id", data_source_id: ds(table) },
-      properties,
-    })
-  );
-  return res.id as string;
-}
 
 function refresh() {
   for (const p of ["/secretariat", "/medecin", "/patients", "/taches", "/finances", "/admin", "/examens", "/perfusions", "/appareils", "/dossiers", "/inventaire"]) {
@@ -333,6 +299,7 @@ export async function creerTache(input: {
   echeance?: string | null;
   priorite?: string | null;
   domaine?: string | null;
+  categorie?: string | null;
   calendrier?: string | null;
   recurrence?: string | null;
   note?: string | null;
@@ -344,6 +311,12 @@ export async function creerTache(input: {
     const session = await getSession();
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
     if (!input.titre.trim()) return { ok: false, error: "Titre requis" };
+
+    // Une tâche récurrente sans échéance n'a pas de motif : le motif EST l'échéance.
+    const recurrente = estRecurrente(input.calendrier ?? null, input.recurrence ?? null);
+    if (recurrente && !input.echeance) {
+      return { ok: false, error: "Une tâche récurrente doit avoir une échéance (elle porte le motif)" };
+    }
 
     const admin = supabaseAdmin();
 
@@ -363,6 +336,9 @@ export async function creerTache(input: {
     // Notifier l'assigné par email (B3) quand la tâche est confiée à QUELQU'UN D'AUTRE.
     const notify = !!(responsable && responsable !== session.member.personnel_notion_id);
 
+    // Chaîne d'instances d'une série récurrente (idempotence du générateur).
+    const groupId = recurrente ? randomUUID() : null;
+
     const props: Record<string, any> = {
       Titre: P.title(input.titre.trim()),
       Statut: P.select("À faire"),
@@ -371,7 +347,9 @@ export async function creerTache(input: {
       Priorité: P.select(input.priorite ?? "Normale"),
     };
     if (input.echeance) props["Échéance"] = P.date(input.echeance);
-    if (input.recurrence && input.calendrier === "Récurrente") props["Récurrence"] = P.select(input.recurrence);
+    if (recurrente) props["Récurrence"] = P.select(input.recurrence!);
+    if (input.categorie) props["Catégorie"] = P.select(input.categorie);
+    if (groupId) props["Groupe récurrence"] = P.text(groupId);
     if (input.note) props["Note"] = P.text(input.note);
     if (responsable) props["Responsable"] = P.relation([responsable]);
     if (notify) props["Notifier"] = P.checkbox(true);
@@ -386,10 +364,12 @@ export async function creerTache(input: {
       titre: input.titre.trim(),
       statut: "À faire",
       calendrier: input.calendrier ?? "Ponctuelle",
-      recurrence: input.calendrier === "Récurrente" ? input.recurrence ?? null : null,
+      recurrence: recurrente ? input.recurrence ?? null : null,
+      recurring_group_id: groupId,
       echeance: input.echeance ?? null,
       priorite: input.priorite ?? "Normale",
       domaine: input.domaine ?? "Clinique",
+      categorie: input.categorie ?? null,
       note: input.note ?? null,
       notifier: notify,
       responsable: responsable ? [responsable] : [],
@@ -413,6 +393,30 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
     await notionUpdate(tacheId, { Statut: P.select(statut) });
     await supabaseAdmin().from("taches").update({ statut }).eq("notion_id", tacheId);
     await logAudit(session, { action: "status", area: "taches", targetId: tacheId, detail: { statut } });
+
+    // Clôturer une instance récurrente engendre la suivante. Fait ICI, dans la MÊME action :
+    // Next 16 sérialise les server actions d'un client, deux actions séparées ne se
+    // recouvriraient donc pas — et « terminé » sans « suivante » romprait la série.
+    //
+    // Isolé dans son propre try : la tâche est DÉJÀ marquée terminée côté Notion et
+    // Supabase. Laisser remonter l'erreur afficherait « échec » sur une clôture réussie.
+    // Le filet du cron (rattraperRecurrences, toutes les 2 h) réparera la série.
+    if (statut === "Terminé") {
+      try {
+        const suivante = await genererInstanceSuivante(tacheId);
+        if (suivante) {
+          await logAudit(session, {
+            action: "create",
+            area: "taches",
+            targetId: suivante.pageId,
+            detail: { recurrence: "instance suivante", echeance: suivante.echeance, groupe: suivante.groupId },
+          });
+        }
+      } catch {
+        // best-effort : le cron rattrapera
+      }
+    }
+
     refresh();
     return { ok: true };
   } catch (e) {
@@ -420,10 +424,34 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
   }
 }
 
-/** Édition d'une tâche (titre, échéance, priorité, note) — rien n'est figé. */
+/** Arrête la récurrence : l'instance courante devient ponctuelle → plus rien n'est engendré. */
+export async function arreterRecurrence(tacheId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
+    await notionUpdate(tacheId, { Calendrier: P.select("Ponctuelle"), Récurrence: P.select(null) });
+    await supabaseAdmin()
+      .from("taches")
+      .update({ calendrier: "Ponctuelle", recurrence: null })
+      .eq("notion_id", tacheId);
+    await logAudit(session, { action: "update", area: "taches", targetId: tacheId, detail: { recurrence: "arrêtée" } });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Édition d'une tâche (titre, échéance, priorité, catégorie, note) — rien n'est figé. */
 export async function majTache(
   tacheId: string,
-  input: { titre?: string | null; echeance?: string | null; priorite?: string | null; note?: string | null }
+  input: {
+    titre?: string | null;
+    echeance?: string | null;
+    priorite?: string | null;
+    categorie?: string | null;
+    note?: string | null;
+  }
 ): Promise<ActionResult> {
   try {
     const session = await getSession();
@@ -431,6 +459,7 @@ export async function majTache(
     const patch: Record<string, any> = {
       "Échéance": P.date(input.echeance ?? null),
       "Priorité": P.select(input.priorite ?? "Normale"),
+      "Catégorie": P.select(input.categorie || null),
       "Note": P.text(input.note ?? null),
     };
     if (input.titre && input.titre.trim()) patch["Titre"] = P.title(input.titre.trim());
@@ -441,6 +470,7 @@ export async function majTache(
         ...(input.titre && input.titre.trim() ? { titre: input.titre.trim() } : {}),
         echeance: input.echeance || null,
         priorite: input.priorite ?? "Normale",
+        categorie: input.categorie || null,
         note: input.note || null,
       })
       .eq("notion_id", tacheId);
@@ -496,7 +526,7 @@ export async function supprimerTache(tacheId: string): Promise<ActionResult> {
     if (!session.member.is_owner && session.member.role !== "admin") {
       return { ok: false, error: "Accès refusé" };
     }
-    await withNotionRetry(() => notion().pages.update({ page_id: tacheId, archived: true }));
+    await notionArchive(tacheId);
     await supabaseAdmin().from("taches").delete().eq("notion_id", tacheId);
     await logAudit(session, { action: "delete", area: "taches", targetId: tacheId });
     refresh();

@@ -10,7 +10,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { AutoSubmitSelect } from "@/components/ui/auto-submit-select";
-import { PRIORITE } from "@/lib/labels";
+import { PRIORITE, CATEGORIE_TACHE, CATEGORIES_TACHE } from "@/lib/labels";
+import { tv, RECURRENCE } from "@/lib/i18n/dict";
 import { formatDate, cn, EMPTY } from "@/lib/utils";
 import {
   NouvelleTacheButton,
@@ -39,13 +40,13 @@ async function getOwnerPersonnelId(): Promise<string | null> {
 export default async function TachesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filtre?: string; domaine?: string; qui?: string }>;
+  searchParams: Promise<{ filtre?: string; domaine?: string; categorie?: string; qui?: string }>;
 }) {
   const session = await getSession();
   if (!can(session, "taches")) redirect(homeFor(session.member));
   const { lang, tr } = await getTr();
 
-  const { filtre = "ouvertes", domaine, qui } = await searchParams;
+  const { filtre = "ouvertes", domaine, categorie, qui } = await searchParams;
   const supa = await supabaseServer();
 
   // Filtre « qui » : par défaut = mes tâches (si le compte est relié à une fiche),
@@ -58,6 +59,7 @@ export default async function TachesPage({
   if (filtre === "terminees") query = query.eq("statut", "Terminé");
   if (filtre === "recurrentes") query = query.eq("calendrier", "Récurrente");
   if (domaine) query = query.eq("domaine", domaine);
+  if (categorie) query = query.eq("categorie", categorie);
   if (quiEff && quiEff !== "__all__") query = query.contains("responsable", [quiEff]);
 
   const [{ data }, ouvertes, personnel, patientsIndex, ownerId] = await Promise.all([
@@ -103,7 +105,7 @@ export default async function TachesPage({
 
   const urlFor = (patch: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
-    const merged = { filtre, domaine, qui, ...patch };
+    const merged = { filtre, domaine, categorie, qui, ...patch };
     for (const [k, v] of Object.entries(merged)) if (v) params.set(k, v);
     return `/taches?${params.toString()}`;
   };
@@ -141,7 +143,33 @@ export default async function TachesPage({
             ))}
           </AutoSubmitSelect>
           <input type="hidden" name="filtre" value={filtre} />
+          {categorie && <input type="hidden" name="categorie" value={categorie} />}
         </form>
+      </div>
+
+      {/* Catégories (réunion juil. 2026) : Administration · Patient · Mobilier · Paiement */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Link href={urlFor({ categorie: undefined })}>
+          <Badge
+            tone={categorie ? "gray" : "blue"}
+            className={cn("transition-opacity hover:opacity-80", !categorie && "ring-1 ring-primary/40")}
+          >
+            {tr.taches.allCategories}
+          </Badge>
+        </Link>
+        {CATEGORIES_TACHE.map((c) => (
+          <Link key={c} href={urlFor({ categorie: categorie === c ? undefined : c })}>
+            <Badge
+              tone={CATEGORIE_TACHE[c]}
+              className={cn(
+                "transition-opacity hover:opacity-80",
+                categorie === c ? "ring-1 ring-primary/40" : "opacity-70"
+              )}
+            >
+              {tv(lang, c)}
+            </Badge>
+          </Link>
+        ))}
       </div>
 
       {/* Qui a quoi : résumé des tâches ouvertes par personne */}
@@ -171,7 +199,7 @@ export default async function TachesPage({
         ) : (
           <Table>
             <THead>
-              <th></th><th>{tr.taches.colTask}</th><th>{tr.common.due}</th><th>{tr.common.patient}</th><th>{tr.taches.colOwner}</th><th>{tr.common.priority}</th><th>{tr.common.status}</th>{canDelete && <th></th>}
+              <th></th><th>{tr.taches.colTask}</th><th>{tr.dialogs.categoryField}</th><th>{tr.common.due}</th><th>{tr.common.patient}</th><th>{tr.taches.colOwner}</th><th>{tr.common.priority}</th><th>{tr.common.status}</th>{canDelete && <th></th>}
             </THead>
             <TBody>
               {taches.map((t) => (
@@ -186,6 +214,14 @@ export default async function TachesPage({
                     {isPool(t) && t.statut !== "Terminé" && (
                       <Badge tone="orange" className="ml-2">{tr.taches.poolBadge}</Badge>
                     )}
+                    {t.calendrier === "Récurrente" && (
+                      <Badge tone="violet" className="ml-2">
+                        {t.recurrence ? RECURRENCE[lang][t.recurrence] ?? tr.dialogs.recurringBadge : tr.dialogs.recurringBadge}
+                      </Badge>
+                    )}
+                  </td>
+                  <td>
+                    {t.categorie ? <StatusBadge value={t.categorie} map={CATEGORIE_TACHE} /> : EMPTY}
                   </td>
                   <td className={cn("whitespace-nowrap", isOverdue(t) && "font-semibold text-danger")}>
                     {formatDate(t.echeance, lang)}

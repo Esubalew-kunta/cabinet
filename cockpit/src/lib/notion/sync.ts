@@ -3,6 +3,7 @@ import { SOURCES, type SourceSpec } from "./sources";
 import { mapPage } from "./mapper";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { drainHorairesToNotion } from "@/lib/horaires-sync";
+import { rattraperRecurrences } from "@/lib/taches-recurrence";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -77,6 +78,15 @@ export async function runSync(triggerSource: string): Promise<SyncResult> {
     await drainHorairesToNotion();
   } catch {
     // le drainer est best-effort ; ne fait jamais échouer la sync principale
+  }
+
+  // Filet des tâches récurrentes : une clôture dont la génération Notion a échoué
+  // laisserait la série sans suivante. On répare ici. Idempotent (cf. taches-recurrence).
+  try {
+    const { crees } = await rattraperRecurrences();
+    if (crees > 0) counts["taches_recurrentes_generees"] = crees;
+  } catch {
+    // best-effort, comme le drainer
   }
 
   const ok = errors.length === 0;

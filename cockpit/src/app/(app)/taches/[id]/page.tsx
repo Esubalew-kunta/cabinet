@@ -7,7 +7,8 @@ import { getPersonnel, getPersonnelMap, getPatientsIndex, patientName, personNam
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge, Badge } from "@/components/ui/badge";
-import { PRIORITE } from "@/lib/labels";
+import { PRIORITE, CATEGORIE_TACHE } from "@/lib/labels";
+import { RECURRENCE } from "@/lib/i18n/dict";
 import { formatDate, EMPTY } from "@/lib/utils";
 import {
   StatutSelect,
@@ -15,6 +16,7 @@ import {
   TacheTermineeButton,
   SupprimerTacheButton,
   ModifierTacheButton,
+  ArreterRecurrenceButton,
 } from "@/components/interactive";
 import { ArrowLeft, ListChecks } from "lucide-react";
 import type { Tache } from "@/lib/types";
@@ -87,6 +89,21 @@ export default async function TacheDetailPage({ params }: { params: Promise<{ id
           </Row>
           <Row label={tr.common.due}>{tache.echeance ? formatDate(tache.echeance, lang) : EMPTY}</Row>
           <Row label={tr.common.priority}><StatusBadge value={tache.priorite} map={PRIORITE} /></Row>
+          <Row label={tr.dialogs.categoryField}>
+            {tache.categorie ? <StatusBadge value={tache.categorie} map={CATEGORIE_TACHE} /> : EMPTY}
+          </Row>
+          <Row label={tr.dialogs.recurrence}>
+            {tache.calendrier === "Récurrente" ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <Badge tone="violet">
+                  {tache.recurrence ? RECURRENCE[lang][tache.recurrence] ?? tr.dialogs.recurringBadge : tr.dialogs.recurringBadge}
+                </Badge>
+                <ArreterRecurrenceButton tacheId={tache.notion_id} />
+              </span>
+            ) : (
+              tr.taches.oneOff
+            )}
+          </Row>
           <Row label={tr.dialogs.noteField}>{tache.note || EMPTY}</Row>
           <Row label={tr.common.patient}>
             {tache.patient_lie?.[0] ? (

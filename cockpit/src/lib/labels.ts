@@ -63,7 +63,23 @@ export const DOMAINE_TACHE: Record<string, Tone> = {
   "Projets": tone("orange"),
 };
 
-// Récurrences : libellés FR/EN dans src/lib/i18n/dict.ts (RECURRENCE)
+/**
+ * Tâches — Catégorie (réunion juil. 2026).
+ * Axe distinct de Domaine : Domaine porte la confidentialité (RLS « Personnel »),
+ * Catégorie sert au tri quotidien du cabinet.
+ */
+export const CATEGORIE_TACHE: Record<string, Tone> = {
+  "Administration": tone("blue"),
+  "Patient": tone("violet"),
+  "Mobilier": tone("orange"),
+  "Paiement": tone("green"),
+};
+
+export const CATEGORIES_TACHE = ["Administration", "Patient", "Mobilier", "Paiement"] as const;
+
+/** Options Notion de « Récurrence » (valeurs stockées telles quelles ; libellés : dict RECURRENCE). */
+export const RECURRENCES = ["daily", "weekdays", "weekly", "monthly", "yearly"] as const;
+export type RecurrenceKey = (typeof RECURRENCES)[number];
 
 /** Examens / appareils */
 export const STATUT_APPAREIL: Record<string, Tone> = {
