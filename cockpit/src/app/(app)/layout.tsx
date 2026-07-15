@@ -29,13 +29,37 @@ async function getTaskCounts(): Promise<{ open: number; today: number; overdue: 
   return { open: rows.length, today, overdue };
 }
 
+/**
+ * Messages non lus pour la pastille du menu (décision réunion : « dans l'onglet chat,
+ * afficher le nombre de nouveaux messages »).
+ *
+ * Non lu = un message est arrivé après le filigrane de lecture du lecteur.
+ * RLS appliquée : un membre ne compte que SA conversation, l'admin les compte toutes.
+ */
+async function getUnreadMessages(isAdmin: boolean): Promise<number> {
+  const supa = await supabaseServer();
+  const { data } = await supa
+    .from("conversations")
+    .select("dernier_message_at, lu_admin_at, lu_membre_at")
+    .limit(200);
+  return (data ?? []).filter((c) => {
+    const lu = isAdmin ? c.lu_admin_at : c.lu_membre_at;
+    return !lu || new Date(c.dernier_message_at) > new Date(lu);
+  }).length;
+}
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const { member } = session;
   const { tr } = await getTr();
 
   const hasTaches = can(session, "taches");
-  const counts = hasTaches ? await getTaskCounts() : { open: 0, today: 0, overdue: 0 };
+  const hasMessages = can(session, "messages");
+  const isAdmin = member.is_owner || member.role === "admin";
+  const [counts, unread] = await Promise.all([
+    hasTaches ? getTaskCounts() : Promise.resolve({ open: 0, today: 0, overdue: 0 }),
+    hasMessages ? getUnreadMessages(isAdmin) : Promise.resolve(0),
+  ]);
 
   const items: NavItem[] = [];
   if (can(session, "dossiers_all")) items.push({ href: "/secretariat", label: tr.nav.secretariat, icon: "secretariat" });
@@ -46,6 +70,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (can(session, "patients_all") || can(session, "patients_own"))
     items.push({ href: "/patients", label: tr.nav.patients, icon: "patients" });
   if (hasTaches) items.push({ href: "/taches", label: tr.nav.taches, icon: "taches", badge: counts.open });
+  if (hasMessages) items.push({ href: "/messages", label: tr.nav.messages, icon: "messages", badge: unread });
   if (can(session, "examens")) items.push({ href: "/examens", label: tr.nav.examens, icon: "examens" });
   if (can(session, "examens")) items.push({ href: "/appareils", label: tr.nav.appareils, icon: "appareils" });
   if (can(session, "stock")) items.push({ href: "/inventaire", label: tr.nav.inventaire, icon: "inventaire" });

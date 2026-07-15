@@ -1691,3 +1691,126 @@ export async function supprimerHoraire(id: string, wholeGroup = false): Promise<
     return fail(e);
   }
 }
+
+// ============================================================
+// Messagerie équipe ↔ admin (module « messages »)
+//
+// Demandé en réunion : un canal pour les remarques et les choses à savoir —
+// PAS des tâches. Une conversation par membre, avec l'admin uniquement.
+//
+// Supabase = source de vérité (écriture immédiate), Notion = miroir rempli par le
+// drainer (cf. messages-sync.ts). Chaque écriture laisse le message « pending » et
+// marque la page Notion « dirty ».
+// ============================================================
+
+function refreshMessages() {
+  revalidatePath("/messages", "layout");
+  revalidatePath("/", "layout"); // pastille du menu
+}
+
+/**
+ * Envoie un message. Le membre écrit dans SA conversation ; l'admin répond dans
+ * celle d'un membre (`destinataire`).
+ *
+ * Volontairement une seule action : Next 16 sérialise les server actions d'un même
+ * client, donc « envoyer » puis « marquer lu » en parallèle ne se recouvriraient pas.
+ * On fait donc tout ici.
+ */
+export async function envoyerMessage(input: {
+  corps: string;
+  /** personnel.notion_id du membre dont c'est la conversation. Admin uniquement. */
+  destinataire?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "messages")) return { ok: false, error: "Accès refusé" };
+    const corps = input.corps.trim();
+    if (!corps) return { ok: false, error: "Message vide" };
+
+    const estAdmin = session.member.is_owner || session.member.role === "admin";
+    // Un membre écrit toujours dans SA conversation : le destinataire fourni par le
+    // client est ignoré pour lui — sinon n'importe qui pourrait poster chez un autre
+    // en appelant l'action directement.
+    const personnelId = estAdmin ? input.destinataire ?? null : session.member.personnel_notion_id;
+    if (!personnelId) {
+      return {
+        ok: false,
+        error: estAdmin
+          ? "Destinataire requis"
+          : "Votre compte n'est relié à aucune fiche Personnel : impossible d'ouvrir une conversation.",
+      };
+    }
+
+    const admin = supabaseAdmin();
+    const now = new Date().toISOString();
+
+    // Conversation créée à la première prise de parole (unique sur personnel_notion_id).
+    const { data: conv, error: convErr } = await admin
+      .from("conversations")
+      .upsert(
+        {
+          personnel_notion_id: personnelId,
+          dernier_message_at: now,
+          // L'auteur a forcément lu ce qu'il vient d'écrire.
+          ...(estAdmin ? { lu_admin_at: now } : { lu_membre_at: now }),
+        },
+        { onConflict: "personnel_notion_id" }
+      )
+      .select("id")
+      .single();
+    if (convErr || !conv) return { ok: false, error: convErr?.message ?? "Conversation introuvable" };
+
+    const { error: msgErr } = await admin.from("messages").insert({
+      conversation_id: conv.id,
+      auteur_member_id: session.member.id,
+      auteur_personnel_id: session.member.personnel_notion_id,
+      est_admin: estAdmin,
+      corps,
+      sync_state: "pending",
+    });
+    if (msgErr) return { ok: false, error: msgErr.message };
+
+    await admin
+      .from("messages_notion_pages")
+      .upsert({ personnel_notion_id: personnelId, dirty: true, updated_at: now }, { onConflict: "personnel_notion_id" });
+
+    await logAudit(session, { action: "send", area: "messages", targetId: conv.id });
+    refreshMessages();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Pose le filigrane de lecture du lecteur courant (fait disparaître la pastille). */
+export async function marquerConversationLue(conversationId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "messages")) return { ok: false, error: "Accès refusé" };
+    const admin = supabaseAdmin();
+
+    const { data: conv } = await admin
+      .from("conversations")
+      .select("id, personnel_notion_id")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (!conv) return { ok: false, error: "Conversation introuvable" };
+
+    const estAdmin = session.member.is_owner || session.member.role === "admin";
+    // Un membre ne peut marquer lue QUE la sienne (l'action est joignable en direct).
+    if (!estAdmin && conv.personnel_notion_id !== session.member.personnel_notion_id) {
+      return { ok: false, error: "Accès refusé" };
+    }
+
+    const now = new Date().toISOString();
+    await admin
+      .from("conversations")
+      .update(estAdmin ? { lu_admin_at: now } : { lu_membre_at: now })
+      .eq("id", conversationId);
+
+    refreshMessages();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}

@@ -4,6 +4,7 @@ import { mapPage } from "./mapper";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { drainHorairesToNotion } from "@/lib/horaires-sync";
 import { rattraperRecurrences } from "@/lib/taches-recurrence";
+import { drainMessagesToNotion } from "@/lib/messages-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -87,6 +88,14 @@ export async function runSync(triggerSource: string): Promise<SyncResult> {
     if (crees > 0) counts["taches_recurrentes_generees"] = crees;
   } catch {
     // best-effort, comme le drainer
+  }
+
+  // Miroir des conversations équipe ↔ admin (une page Notion par membre).
+  try {
+    const res = await drainMessagesToNotion();
+    if (res.pushed) counts["messages_notion"] = res.pushed;
+  } catch {
+    // best-effort
   }
 
   const ok = errors.length === 0;

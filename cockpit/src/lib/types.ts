@@ -202,6 +202,30 @@ export type Horaire = {
   updated_at: string | null;
 };
 
+/**
+ * Messagerie équipe ↔ admin (module Messages).
+ * Une conversation par membre — « seulement avec l'admin » (réunion juil. 2026).
+ */
+export type Conversation = {
+  id: string;
+  personnel_notion_id: string;
+  dernier_message_at: string;
+  lu_admin_at: string | null;
+  lu_membre_at: string | null;
+  created_at: string | null;
+};
+
+export type Message = {
+  id: string;
+  conversation_id: string;
+  auteur_member_id: string;
+  auteur_personnel_id: string | null;
+  est_admin: boolean;
+  corps: string;
+  sync_state: string;
+  created_at: string | null;
+};
+
 export type PersonnelRow = {
   notion_id: string;
   nom: string | null;
