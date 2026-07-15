@@ -10,7 +10,7 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/badge";
 import { ETAT_APPAREIL_UNITE, TYPES_APPAREIL, STATUT_APPAREIL } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
-import { jour, joursDeRetard, statutRetour, retardBloqueUneReservation, type Pret } from "@/lib/appareils";
+import { jour, joursDeRetard, statutRetour, retardBloqueUneReservation, pretDeExamen, type Pret } from "@/lib/appareils";
 import {
   EtatAppareilSelect,
   NouvelAppareilButton,
@@ -61,20 +61,26 @@ export default async function AppareilsPage() {
   const pretsByUnit = new Map<string, Pret[]>();
   for (const e of examens) {
     for (const uniteId of e.appareil ?? []) {
-      const p: Pret = {
-        id: e.notion_id,
-        debut: jour(e.date_pose) ?? today,
-        retourPrevu: jour(e.restitution_prevue),
-        retourEffectif: jour(e.restitution_effective),
-      };
-      pretsByUnit.set(uniteId, [...(pretsByUnit.get(uniteId) ?? []), p]);
+      pretsByUnit.set(uniteId, [...(pretsByUnit.get(uniteId) ?? []), pretDeExamen(e, today)]);
     }
   }
-  /** Le prêt réellement en cours (pose atteinte), par opposition à une réservation. */
+  /**
+   * Le prêt réellement en cours (pose atteinte), par opposition à une réservation.
+   *
+   * Deux prêts ouverts peuvent se chevaucher quand le précédent n'a jamais été marqué
+   * rendu. C'est alors le PLUS ANCIEN qui tient physiquement le boîtier, et lui seul :
+   * sans tri, la Map gardait le dernier venu (la requête n'ordonne rien), et la ligne
+   * nommait le mauvais patient, la pénalité retombait à 0, l'alerte de retard (décision 5)
+   * ne se déclenchait jamais — dans le cas précis pour lequel elle existe — et « Marquer
+   * rendu » clôturait la mauvaise ligne, laissant l'ancienne bloquer l'unité à jamais.
+   */
   const enCoursByUnit = new Map<string, Examen>();
-  for (const e of examens) {
-    if ((jour(e.date_pose) ?? today) <= today) {
-      for (const uniteId of e.appareil ?? []) enCoursByUnit.set(uniteId, e);
+  const commences = examens
+    .filter((e) => (jour(e.date_pose) ?? today) <= today)
+    .sort((a, b) => (jour(a.date_pose) ?? today).localeCompare(jour(b.date_pose) ?? today));
+  for (const e of commences) {
+    for (const uniteId of e.appareil ?? []) {
+      if (!enCoursByUnit.has(uniteId)) enCoursByUnit.set(uniteId, e); // le plus ancien gagne
     }
   }
 

@@ -20,6 +20,7 @@ import {
   AppareilRenduButton,
 } from "@/components/interactive";
 import { tv } from "@/lib/i18n/dict";
+import { statutRetour, pretDeExamen } from "@/lib/appareils";
 import { ArrowRight, CalendarClock, ClipboardList, CreditCard, Inbox, ListChecks, TriangleAlert, Watch } from "lucide-react";
 import type { Dossier, Tache, Examen, Paiement } from "@/lib/types";
 
@@ -30,6 +31,7 @@ export default async function SecretariatPage() {
 
   const supa = await supabaseServer();
   const today = new Date().toISOString();
+  const aujourdhui = today.slice(0, 10);
 
   const [aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex, ownerId] =
     await Promise.all([
@@ -63,10 +65,17 @@ export default async function SecretariatPage() {
         .order("echeance", { ascending: true, nullsFirst: false })
         .limit(15)
         .then((r) => (r.data ?? []) as Tache[]),
+      // « Appareils à rendre » = ceux qui sont DEHORS : un retour prévu, pas encore rendu.
+      // On filtrait sur `statut_appareil in (Remis, Bientôt dû, En retard)` — or rien
+      // n'écrit les deux derniers, et une réservation porte « Disponible » : la table
+      // manquait des lignes et n'a jamais pu afficher un retard. Les dates, elles, sont
+      // fiables ; le statut est dérivé à l'affichage.
       supa
         .from("examens")
         .select("*")
-        .in("statut_appareil", ["Remis", "Bientôt dû", "En retard"])
+        .is("restitution_effective", null)
+        .not("restitution_prevue", "is", null)
+        .lte("date_pose", today) // déjà posé : une réservation à venir n'est pas « à rendre »
         .order("restitution_prevue", { ascending: true })
         .limit(20)
         .then((r) => (r.data ?? []) as Examen[]),
@@ -252,7 +261,7 @@ export default async function SecretariatPage() {
                     <td>{patientName(a.patient, patientsIndex)}</td>
                     <td className="text-xs">{a.type ?? EMPTY}</td>
                     <td className="whitespace-nowrap">{formatDate(a.restitution_prevue, lang)}</td>
-                    <td><StatusBadge value={a.statut_appareil} map={STATUT_APPAREIL} /></td>
+                    <td><StatusBadge value={statutRetour(pretDeExamen(a, aujourdhui), aujourdhui)} map={STATUT_APPAREIL} /></td>
                     <td><AppareilRenduButton examenId={a.notion_id} /></td>
                   </Tr>
                 ))}

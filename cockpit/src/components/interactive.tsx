@@ -41,6 +41,7 @@ import {
   setStatutIntake,
   setStatutMedecin,
   setStatutTache,
+  annulerTerminee,
   reassignerTache,
   prendreTache,
   supprimerTache,
@@ -463,10 +464,13 @@ export function TacheTermineeButton({ tacheId, statut }: { tacheId: string; stat
         setError(res.error);
         return;
       }
+      // On passe l'instance engendrée : annuler doit AUSSI la retirer, sinon la série se
+      // retrouve avec deux tâches ouvertes.
+      const suivanteId = res.suivanteId;
       toast(tr.toast.taskDone, "success", {
         label: tr.common.undo,
         onAction: async () => {
-          await setStatutTache(tacheId, statut ?? "À faire");
+          await annulerTerminee(tacheId, statut ?? "À faire", suivanteId);
           router.refresh();
         },
       });
@@ -1160,25 +1164,27 @@ export function NouvelExamenButton({
   // Disponibilité jugée à la DATE demandée, pas sur l'état courant : c'est ce qui
   // permet de réserver un appareil encore dehors mais rendu d'ici là.
   const horsService = (u: Unite) => Boolean(u.etat) && !["Au cabinet", "Dehors"].includes(u.etat!);
-  const freeOf = (t: string, date: string) =>
-    unites.filter((u) => u.type === t && !horsService(u) && uniteDisponible(u.prets, date, today));
+  // `fin` = retour prévu demandé. Sans lui, la disponibilité ne peut être jugée que sur la
+  // date de pose ; le serveur, qui l'exige, tranchera sur la plage complète.
+  const freeOf = (t: string, date: string, fin: string | null) =>
+    unites.filter((u) => u.type === t && !horsService(u) && uniteDisponible(u.prets, date, fin, today));
   const ofType = (t: string) => unites.filter((u) => u.type === t && !horsService(u));
 
-  const initialType = TYPES_APPAREIL.find((t) => freeOf(t, today).length > 0) ?? TYPES_APPAREIL[0];
+  const initialType = TYPES_APPAREIL.find((t) => freeOf(t, today, null).length > 0) ?? TYPES_APPAREIL[0];
   const [type, setType] = useState<string>(initialType);
   const [patient, setPatient] = useState(defaultPatient ?? "");
-  const [unite, setUnite] = useState(freeOf(initialType, today)[0]?.notion_id ?? "");
+  const [unite, setUnite] = useState(freeOf(initialType, today, null)[0]?.notion_id ?? "");
   const [indication, setIndication] = useState("");
   const [site, setSite] = useState<string>(SITES[0]);
   const [retour, setRetour] = useState("");
   const [interprete, setInterprete] = useState("");
 
-  const libres = freeOf(type, pose);
+  const libres = freeOf(type, pose, retour || null);
   // Les autres unités du type, avec la date à laquelle elles se libèrent : bien plus utile
   // qu'une liste vide quand tout est sorti (« Holter n°2 — libre à partir du 7 juin »).
   const occupees = ofType(type)
     .filter((u) => !libres.some((l) => l.notion_id === u.notion_id))
-    .map((u) => ({ u, libre: prochaineDisponibilite(u.prets, pose, today) }))
+    .map((u) => ({ u, libre: prochaineDisponibilite(u.prets, pose, retour || null, today) }))
     .sort((a, b) => (a.libre ?? "9999").localeCompare(b.libre ?? "9999"));
 
   // Changer la date de pose peut invalider l'unité choisie : on la libère plutôt que
@@ -1233,9 +1239,9 @@ export function NouvelExamenButton({
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.common.type} hint={tr.examens.availabilityHint}>
-              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t, pose)[0]?.notion_id ?? ""); }}>
+              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t, pose, retour || null)[0]?.notion_id ?? ""); }}>
                 {TYPES_APPAREIL.map((t) => {
-                  const n = freeOf(t, pose).length;
+                  const n = freeOf(t, pose, retour || null).length;
                   return <option key={t} value={t}>{t} — {tr.examens.availableCount(n)}</option>;
                 })}
               </Select>

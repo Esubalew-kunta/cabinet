@@ -35,10 +35,40 @@ export function jour(d: string | null | undefined): string | null {
   return d ? d.slice(0, 10) : null;
 }
 
+/**
+ * Adapte une ligne `examens` (miroir Supabase) en `Pret`.
+ *
+ * Toutes les pages qui affichent un statut d'appareil doivent le DÉRIVER via `statutRetour`
+ * plutôt que lire la colonne `statut_appareil` : plus personne n'y écrit « Bientôt dû » ni
+ * « En retard » (cf. en-tête). Passer par ce constructeur évite que chaque page réinvente
+ * — et se trompe sur — la conversion.
+ */
+export function pretDeExamen(
+  e: {
+    notion_id: string;
+    date_pose?: string | null;
+    restitution_prevue?: string | null;
+    restitution_effective?: string | null;
+  },
+  aujourdhui: string
+): Pret {
+  return {
+    id: e.notion_id,
+    debut: jour(e.date_pose) ?? aujourdhui,
+    retourPrevu: jour(e.restitution_prevue),
+    retourEffectif: jour(e.restitution_effective),
+  };
+}
+
 /** Lendemain civil (jamais +86 400 000 ms : les changements d'heure cassent ça). */
 export function lendemain(dateStr: string): string {
+  return ajouterJours(dateStr, 1);
+}
+
+/** Décalage civil de `n` jours (même raison que `lendemain` : pas d'arithmétique en ms). */
+export function ajouterJours(dateStr: string, n: number): string {
   const d = new Date(dateStr.slice(0, 10) + "T00:00:00");
-  d.setDate(d.getDate() + 1);
+  d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -77,51 +107,92 @@ function finImmobilisation(p: Pret, aujourdhui: string): string | null {
 }
 
 /**
- * Un prêt ouvert bloque-t-il une pose au `datePose` demandé ?
+ * Un prêt ouvert bloque-t-il la fenêtre demandée [`datePose` → `dateRetour`] ?
  *
- * Règle : bloque tant que `datePose <= fin d'immobilisation` — le lendemain passe, le jour
- * même non.
- *   existant [1er juin → 6 juin], aujourd'hui le 4, demande le 7 → 7 > 6  → libre  ✅ (réunion)
- *   existant [1er juin → 6 juin], aujourd'hui le 4, demande le 6 → 6 <= 6 → bloqué ✅ (lendemain)
- *   existant [1er juin → 6 juin] TOUJOURS DEHORS le 15, demande le 15 → bloqué ✅ (en retard)
+ * DEUX moitiés, et il faut les deux — n'en garder qu'une inverse la fonctionnalité :
+ *   conflit ⟺ datePose <= fin(existant)  ET  début(existant) <= dateRetour
+ *
+ *   existant [1er juin → 6 juin], demande [7 juin → …]  → 7 > 6            → libre  ✅ (réunion)
+ *   existant [1er juin → 6 juin], demande [6 juin → …]  → 6 <= 6, 1 <= 6   → bloqué ✅ (lendemain)
+ *   existant [20 sept → 25 sept], demande [4 juin → 6 juin] → 4 <= 25 MAIS
+ *     20 sept > 6 juin → PAS de conflit → libre ✅ ← une réservation lointaine ne doit
+ *     pas rendre l'appareil impossible à poser aujourd'hui. C'est la moitié qui manquait.
+ *   existant [1er juin → 6 juin] TOUJOURS DEHORS le 15, demande le 15 → bloqué ✅ (retard)
+ *
+ * `dateRetour` inconnu (l'utilisateur n'a pas encore saisi le retour dans le formulaire) :
+ * on ne peut pas juger la seconde moitié, donc on ne bloque que si le prêt couvre déjà la
+ * date de pose. Le serveur, lui, exige toujours un retour prévu (`creerExamen`) et tranche
+ * donc toujours avec les deux moitiés.
+ *
  * Un prêt ouvert sans retour prévu bloque toujours : fin inconnue.
  */
-export function pretBloque(p: Pret, datePose: string, aujourdhui: string): boolean {
+export function pretBloque(p: Pret, datePose: string, dateRetour: string | null, aujourdhui: string): boolean {
   if (!pretOuvert(p)) return false;
   const pose = jour(datePose)!;
   const fin = finImmobilisation(p, aujourdhui);
   if (!fin) return true; // pas de retour prévu → fin inconnue
-  return pose <= fin;
+  if (pose > fin) return false; // la demande commence après la fin de l'existant (lendemain)
+
+  const debut = jour(p.debut)!;
+  const retour = jour(dateRetour);
+  // Retour demandé inconnu : seule la couverture de la date de pose est décidable.
+  if (!retour) return debut <= pose;
+  return debut <= retour;
 }
 
 /**
- * L'unité est-elle réservable à cette date, compte tenu de tous ses prêts ?
+ * L'unité est-elle réservable sur cette plage, compte tenu de tous ses prêts ?
  *
  * `aujourdhui` est REQUIS à dessein. En le laissant défaillir sur `datePose`, tout prêt
  * passé paraissait « en retard » vu depuis une pose lointaine et bloquait à tort — la
  * réservation dos à dos cassait. Le retard est un fait du présent : il faut le vrai jour.
  */
-export function uniteDisponible(prets: Pret[], datePose: string, aujourdhui: string): boolean {
-  return !prets.some((p) => pretBloque(p, datePose, aujourdhui));
+export function uniteDisponible(
+  prets: Pret[],
+  datePose: string,
+  dateRetour: string | null,
+  aujourdhui: string
+): boolean {
+  return !prets.some((p) => pretBloque(p, datePose, dateRetour, aujourdhui));
 }
 
 /**
- * Première date de pose possible : `aPartirDe` si rien ne bloque, sinon le lendemain de la
- * dernière fin d'immobilisation. `null` si indéterminable (prêt ouvert sans retour prévu)
- * → l'UI doit dire « indisponible », pas inventer une date.
+ * Première date de pose possible pour une fenêtre de même DURÉE que celle demandée.
+ * `null` si indéterminable (prêt ouvert sans retour prévu) → l'UI doit dire
+ * « indisponible », pas inventer une date.
+ *
+ * Itératif à dessein : décaler la fenêtre après le prêt qui bloque peut la faire tomber
+ * sur un prêt PLUS TARDIF qui, lui, ne bloquait pas la fenêtre initiale. Une seule passe
+ * annoncerait une date encore occupée. Chaque tour franchit au moins un prêt bloquant,
+ * donc au plus `prets.length` tours.
  */
-export function prochaineDisponibilite(prets: Pret[], aPartirDe: string, aujourdhui: string): string | null {
+export function prochaineDisponibilite(
+  prets: Pret[],
+  aPartirDe: string,
+  dateRetour: string | null,
+  aujourdhui: string
+): string | null {
   const today = aujourdhui;
-  const bloquants = prets.filter((p) => pretBloque(p, aPartirDe, today));
-  if (bloquants.length === 0) return jour(aPartirDe);
-  if (bloquants.some((p) => !p.retourPrevu)) return null; // fin inconnue
+  const poseInit = jour(aPartirDe)!;
+  const retourInit = jour(dateRetour);
+  // La durée du prêt voyage avec la fenêtre : décaler la pose décale le retour d'autant.
+  const duree = retourInit ? Math.max(0, joursEntre(poseInit, retourInit)) : null;
 
-  // La plus tardive des fins d'immobilisation commande.
-  const dernier = bloquants
-    .map((p) => finImmobilisation(p, today)!)
-    .sort()
-    .at(-1)!;
-  return lendemain(dernier);
+  let pose = poseInit;
+  for (let i = 0; i <= prets.length; i++) {
+    const retour = duree === null ? null : ajouterJours(pose, duree);
+    const bloquants = prets.filter((p) => pretBloque(p, pose, retour, today));
+    if (bloquants.length === 0) return pose;
+    if (bloquants.some((p) => !p.retourPrevu)) return null; // fin inconnue
+
+    // La plus tardive des fins d'immobilisation commande.
+    const dernier = bloquants
+      .map((p) => finImmobilisation(p, today)!)
+      .sort()
+      .at(-1)!;
+    pose = lendemain(dernier);
+  }
+  return null; // non convergent (inatteignable : chaque tour franchit un prêt)
 }
 
 // ---------- Statut de retour (dérivé, jamais stocké) ----------

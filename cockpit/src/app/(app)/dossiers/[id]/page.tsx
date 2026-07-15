@@ -10,7 +10,7 @@ import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge, Badge } from "@/components/ui/badge";
 import { STATUT_INTAKE, STATUT_MEDECIN, STATUT_CR, STATUT_APPAREIL, STATUT_PAIEMENT, STATUT_TACHE, PRIORITE } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
-import { jour, type Pret } from "@/lib/appareils";
+import { jour, statutRetour, pretDeExamen, type Pret } from "@/lib/appareils";
 import { tv } from "@/lib/i18n/dict";
 import {
   VerifierDossierButton,
@@ -293,7 +293,9 @@ export default async function DossierDetailPage({ params }: { params: Promise<{ 
                     <td className="text-xs">{e.type ?? EMPTY}</td>
                     <td className="whitespace-nowrap">{formatDate(e.date_pose, lang)}</td>
                     <td className="whitespace-nowrap">{formatDate(e.restitution_prevue, lang)}</td>
-                    <td><StatusBadge value={e.statut_appareil} map={STATUT_APPAREIL} /></td>
+                    {/* Dérivé des dates : la colonne `statut_appareil` ne reçoit plus
+                        « Bientôt dû » ni « En retard » (cf. lib/appareils.ts). */}
+                    <td><StatusBadge value={statutRetour(pretDeExamen(e, aujourdhui), aujourdhui)} map={STATUT_APPAREIL} /></td>
                   </Tr>
                 ))}
               </TBody>

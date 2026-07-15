@@ -7,7 +7,7 @@ import { Card, CardHeader, CardBody, StatCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { SyncBanner } from "@/components/sync-banner";
 import { formatDate, formatEuro } from "@/lib/utils";
-import { jour, statutRetour } from "@/lib/appareils";
+import { statutRetour, pretDeExamen } from "@/lib/appareils";
 import { tv, type Lang } from "@/lib/i18n/dict";
 import { ParametreValeur } from "@/components/interactive";
 import { CreditCard, FileText, FolderOpen, ListChecks, RefreshCw, Settings2, SlidersHorizontal, Users, Watch } from "lucide-react";
@@ -79,16 +79,7 @@ export default async function AdminPage() {
   // n'était en retard pendant que certains l'étaient.
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const appareilsEnRetard = examens.filter(
-    (e) =>
-      statutRetour(
-        {
-          id: e.notion_id,
-          debut: jour(e.date_pose) ?? aujourdhui,
-          retourPrevu: jour(e.restitution_prevue),
-          retourEffectif: jour(e.restitution_effective),
-        },
-        aujourdhui
-      ) === "En retard"
+    (e) => statutRetour(pretDeExamen(e, aujourdhui), aujourdhui) === "En retard"
   ).length;
   const totalEncaisse = paiements.reduce((s, p) => s + Number(p.montant_paye ?? 0), 0);
 
@@ -200,7 +191,9 @@ export default async function AdminPage() {
         </Card>
         <Card>
           <CardHeader icon={<Watch />} title={tr.admin.devicesByStatus} />
-          <CardBody><CountList counts={count(examens, (e) => e.statut_appareil)} lang={lang} emptyLabel={tr.admin.noData} /></CardBody>
+          {/* Dérivé, comme le KPI juste au-dessus : compter la colonne stockée rendait ce
+              graphe incapable d'afficher un seul « En retard ». */}
+          <CardBody><CountList counts={count(examens, (e) => statutRetour(pretDeExamen(e, aujourdhui), aujourdhui))} lang={lang} emptyLabel={tr.admin.noData} /></CardBody>
         </Card>
         <Card>
           <CardHeader icon={<CreditCard />} title={tr.admin.paymentsByStatus} />

@@ -15,6 +15,7 @@ import { isValidRange, isoWeek, addDays } from "@/lib/horaires";
 import { estRecurrente } from "@/lib/recurrence";
 import { genererInstanceSuivante } from "@/lib/taches-recurrence";
 import { jour, uniteDisponible, prochaineDisponibilite } from "@/lib/appareils";
+import { ETAT_APPAREIL_UNITE } from "@/lib/labels";
 import { randomUUID } from "node:crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -387,7 +388,15 @@ export async function creerTache(input: {
   }
 }
 
-export async function setStatutTache(tacheId: string, statut: string): Promise<ActionResult> {
+/**
+ * `suivanteId` = l'instance engendrée par cette clôture, s'il y en a une. Le client en a
+ * besoin pour que « Annuler » puisse la retirer (cf. annulerTerminee) : sans ça, annuler
+ * rouvrait la tâche en laissant la suivante — deux tâches ouvertes de la même série.
+ */
+export async function setStatutTache(
+  tacheId: string,
+  statut: string
+): Promise<{ ok: true; suivanteId?: string } | { ok: false; error: string }> {
   try {
     const session = await getSession();
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
@@ -402,10 +411,12 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
     // Isolé dans son propre try : la tâche est DÉJÀ marquée terminée côté Notion et
     // Supabase. Laisser remonter l'erreur afficherait « échec » sur une clôture réussie.
     // Le filet du cron (rattraperRecurrences, toutes les 2 h) réparera la série.
+    let suivanteId: string | undefined;
     if (statut === "Terminé") {
       try {
         const suivante = await genererInstanceSuivante(tacheId);
         if (suivante) {
+          suivanteId = suivante.pageId;
           await logAudit(session, {
             action: "create",
             area: "taches",
@@ -415,6 +426,67 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
         }
       } catch {
         // best-effort : le cron rattrapera
+      }
+    }
+
+    refresh();
+    return { ok: true, suivanteId };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Annule une clôture (bouton « Annuler » du toast).
+ *
+ * Rouvrir la tâche ne suffit PAS : si elle était récurrente, `setStatutTache` vient
+ * d'engendrer l'instance suivante. La laisser en place donnerait deux tâches ouvertes de la
+ * même série — l'annulation n'annulait donc qu'à moitié.
+ *
+ * Les deux effets sont défaits ici, dans UNE action : Next 16 sérialise les server actions
+ * d'un même client, deux appels séparés ne se recouvriraient pas.
+ */
+export async function annulerTerminee(
+  tacheId: string,
+  statutPrecedent: string,
+  suivanteId?: string | null
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
+
+    await notionUpdate(tacheId, { Statut: P.select(statutPrecedent) });
+    await supabaseAdmin().from("taches").update({ statut: statutPrecedent }).eq("notion_id", tacheId);
+    await logAudit(session, {
+      action: "status",
+      area: "taches",
+      targetId: tacheId,
+      detail: { statut: statutPrecedent, annulation: true },
+    });
+
+    if (suivanteId) {
+      // Prudent à dessein : on ne retire que l'instance engendrée à l'instant, et seulement
+      // si personne n'y a touché entre-temps (toujours « À faire »). Best-effort — une
+      // instance de trop se corrige à la main, une clôture rouverte de force, non.
+      try {
+        const admin = supabaseAdmin();
+        const { data: suivante } = await admin
+          .from("taches")
+          .select("notion_id, statut")
+          .eq("notion_id", suivanteId)
+          .maybeSingle();
+        if (suivante && suivante.statut === "À faire") {
+          await notionArchive(suivanteId);
+          await admin.from("taches").delete().eq("notion_id", suivanteId);
+          await logAudit(session, {
+            action: "delete",
+            area: "taches",
+            targetId: suivanteId,
+            detail: { recurrence: "instance suivante annulée" },
+          });
+        }
+      } catch {
+        // best-effort
       }
     }
 
@@ -746,8 +818,9 @@ export async function creerExamen(input: {
         retourEffectif: e.restitution_effective,
       }));
 
-      if (!uniteDisponible(ouverts, posee, today)) {
-        const libre = prochaineDisponibilite(ouverts, posee, today);
+      const rendue = jour(input.restitution_prevue);
+      if (!uniteDisponible(ouverts, posee, rendue, today)) {
+        const libre = prochaineDisponibilite(ouverts, posee, rendue, today);
         return {
           ok: false,
           error: libre
@@ -905,12 +978,44 @@ export async function creerAppareil(input: {
 }
 
 /** État manuel d'une unité (Maintenance / Perdu / Réformé / Au cabinet). */
+/** Les états physiques d'une unité. Source unique : la table de tons de `labels.ts`. */
+const ETATS_UNITE = Object.keys(ETAT_APPAREIL_UNITE);
+/** Ceux qui sortent l'unité du circuit : plus aucun sélecteur ne la propose. */
+const ETATS_HORS_SERVICE = ["Maintenance", "Perdu", "Réformé"];
+
 export async function setEtatAppareil(appareilId: string, etat: string): Promise<ActionResult> {
   try {
     const session = await getSession();
     if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
+
+    // Liste blanche. Une valeur libre ferait créer l'option par Notion, et tout le code
+    // traite « ni Au cabinet ni Dehors » comme hors service : l'unité disparaîtrait de
+    // TOUS les sélecteurs, définitivement, sans le moindre message. Le garde-fou existant
+    // est côté client (`disabled`) — or une server action se joint en POST direct.
+    if (!ETATS_UNITE.includes(etat)) return { ok: false, error: `État inconnu : ${etat}` };
+
+    // Mettre hors service une unité qui porte un prêt ouvert ou une réservation à venir
+    // ferait échouer l'activation EN SILENCE (activerReservationsDues saute le hors
+    // service) : le patient se présente, l'appareil n'est pas là, personne n'a été prévenu.
+    // On refuse et on dit quoi faire.
+    if (ETATS_HORS_SERVICE.includes(etat)) {
+      const { data: engages } = await supabaseAdmin()
+        .from("examens")
+        .select("notion_id")
+        .contains("appareil", [appareilId])
+        .is("restitution_effective", null)
+        .limit(1);
+      if (engages && engages.length > 0) {
+        return {
+          ok: false,
+          error: "Unité engagée : un prêt ou une réservation est en cours. Clôturez-le ou déplacez-le d'abord.",
+        };
+      }
+    }
+
     await notionUpdate(appareilId, { "État": P.select(etat) });
     await supabaseAdmin().from("appareils").update({ etat }).eq("notion_id", appareilId);
+    await logAudit(session, { action: "status", area: "examens", targetId: appareilId, detail: { etat } });
     refresh();
     return { ok: true };
   } catch (e) {

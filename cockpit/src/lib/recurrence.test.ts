@@ -38,8 +38,21 @@ describe("prochaineEcheance", () => {
     expect(prochaineEcheance("yearly", "2026-03-15")).toBe("2027-03-15");
   });
 
+  // `echeance` est un timestamptz et le formulaire un datetime-local : l'heure fait partie
+  // de l'échéance. La rendre en 'YYYY-MM-DD' la ramenait à minuit — l'heure disparaissait
+  // de l'affichage et l'instance suivante passait « en retard » dès 00 h 00.
   it("accepte un timestamp ISO complet (colonne echeance = timestamptz)", () => {
-    expect(prochaineEcheance("weekly", "2026-07-13T00:00:00+00:00")).toBe("2026-07-20");
+    expect(prochaineEcheance("weekly", "2026-07-13T00:00:00+00:00")).toBe("2026-07-20T00:00:00+00:00");
+  });
+
+  it("l'HEURE survit au report", () => {
+    expect(prochaineEcheance("weekly", "2026-07-13T09:00:00.000Z")).toBe("2026-07-20T09:00:00.000Z");
+    expect(prochaineEcheance("weekdays", "2026-07-17T09:00:00.000Z")).toBe("2026-07-20T09:00:00.000Z"); // vendredi → lundi
+    expect(prochaineEcheance("monthly", "2026-01-31T14:30:00.000Z", 31)).toBe("2026-02-28T14:30:00.000Z");
+  });
+
+  it("une échéance sans heure reste sans heure (tâche « toute la journée »)", () => {
+    expect(prochaineEcheance("weekly", "2026-07-13")).toBe("2026-07-20");
   });
 
   it("fréquence inconnue ou échéance vide → null", () => {

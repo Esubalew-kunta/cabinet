@@ -80,7 +80,18 @@ export function prochaineEcheance(
   anchorDay?: number
 ): string | null {
   if (!from) return null;
-  const base = from.slice(0, 10);
+  const suivante = roulerDate(frequency, from.slice(0, 10), anchorDay);
+  if (!suivante) return null;
+  // L'HEURE SURVIT AU REPORT. « Appeler le labo à 9 h » toutes les semaines doit rester à
+  // 9 h : en ne rendant que 'YYYY-MM-DD', l'instance suivante retombait à minuit — l'heure
+  // disparaissait de l'écran (`formatDate` ne l'affiche que si elle existe) et la tâche
+  // s'affichait « en retard » dès 00 h 00 le jour même. Une échéance sans heure (tâche
+  // « toute la journée ») n'a pas de suffixe : elle en reste dépourvue.
+  return suivante + from.slice(10);
+}
+
+/** Le report pur, sur la seule partie date. */
+function roulerDate(frequency: string | null, base: string, anchorDay?: number): string | null {
   switch (frequency as RecurrenceKey) {
     case "daily":
       return addDaysCivil(base, 1);
