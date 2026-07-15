@@ -21,8 +21,9 @@ import {
 } from "@/components/interactive";
 import { tv } from "@/lib/i18n/dict";
 import { statutRetour, pretDeExamen } from "@/lib/appareils";
+import { ChecklistCard, type TickDuJour } from "./checklist";
 import { ArrowRight, CalendarClock, ClipboardList, CreditCard, Inbox, ListChecks, TriangleAlert, Watch } from "lucide-react";
-import type { Dossier, Tache, Examen, Paiement } from "@/lib/types";
+import type { Dossier, Tache, Examen, Paiement, ChecklistItem } from "@/lib/types";
 
 export default async function SecretariatPage() {
   const session = await getSession();
@@ -33,8 +34,10 @@ export default async function SecretariatPage() {
   const today = new Date().toISOString();
   const aujourdhui = today.slice(0, 10);
 
-  const [aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex, ownerId] =
-    await Promise.all([
+  const [
+    aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex, ownerId,
+    checklistItems, checklistTicks,
+  ] = await Promise.all([
       supa
         .from("dossiers")
         .select("*")
@@ -89,9 +92,23 @@ export default async function SecretariatPage() {
       getPersonnel(),
       getPatientsIndex(),
       getOwnerPersonnelId(),
+      // Checklist de passation (PRD B.5.4). Les items actifs, et UNIQUEMENT les coches
+      // du jour : la « remise à zéro quotidienne » tient à ce filtre, pas à une purge.
+      supa
+        .from("checklist_items")
+        .select("*")
+        .eq("actif", true)
+        .order("ordre", { ascending: true })
+        .then((r) => (r.data ?? []) as ChecklistItem[]),
+      supa
+        .from("checklist_ticks")
+        .select("item_id, fait_par")
+        .eq("jour", aujourdhui)
+        .then((r) => (r.data ?? []) as TickDuJour[]),
     ]);
 
   const medecins = personnel.filter(isSoignant);
+  const nomsPersonnel = Object.fromEntries(personnel.map((p) => [p.notion_id, p.nom ?? "?"]));
   const problemes = [
     "Palpitations ou arythmie suspectée", "FA suivi", "Revue Holter", "Suivi hypertension",
     "Cardiologie préventive", "Syncope ou vertige", "Gêne thoracique non urgente", "Suivi post-ablation",
@@ -117,6 +134,14 @@ export default async function SecretariatPage() {
             <NouvelleTacheButton personnel={personnel.filter((p) => p.actif)} />
           </>
         }
+      />
+
+      {/* En tête de page : c'est la routine par laquelle la journée commence et finit. */}
+      <ChecklistCard
+        items={checklistItems}
+        ticks={checklistTicks}
+        noms={nomsPersonnel}
+        isAdmin={session.member.is_owner || session.member.role === "admin"}
       />
 
       <div className="grid gap-4 xl:grid-cols-2">

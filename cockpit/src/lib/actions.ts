@@ -1955,3 +1955,138 @@ export async function marquerConversationLue(conversationId: string): Promise<Ac
     return fail(e);
   }
 }
+
+// ============================================================
+// Checklist de passation (matin / soir)
+// ============================================================
+
+function refreshChecklist() {
+  revalidatePath("/secretariat", "layout");
+}
+
+/**
+ * Coche ou décoche un item POUR AUJOURD'HUI.
+ *
+ * La coche est datée (clé primaire (item, jour)) : c'est ce qui fait la « remise à zéro
+ * quotidienne » du PRD, sans tâche planifiée à minuit ni purge — demain, la requête du jour
+ * ne voit simplement plus les coches d'hier, et l'historique reste consultable.
+ *
+ * `fait_par` retient qui a coché : le PRD veut que l'administration voie l'avancement.
+ */
+export async function cocherChecklist(itemId: string, coche: boolean): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "checklist")) return { ok: false, error: "Accès refusé" };
+
+    const admin = supabaseAdmin();
+    const jour = new Date().toISOString().slice(0, 10);
+
+    if (coche) {
+      // Idempotent : re-cocher le même jour ne crée pas de doublon (PK (item_id, jour)).
+      const { error } = await admin
+        .from("checklist_ticks")
+        .upsert(
+          { item_id: itemId, jour, fait_par: session.member.personnel_notion_id, at: new Date().toISOString() },
+          { onConflict: "item_id,jour" }
+        );
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await admin.from("checklist_ticks").delete().eq("item_id", itemId).eq("jour", jour);
+      if (error) return { ok: false, error: error.message };
+    }
+
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Ajoute un item (administration). */
+export async function creerChecklistItem(input: { libelle: string; moment: "Matin" | "Soir" }): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") return { ok: false, error: "Accès refusé" };
+    const libelle = input.libelle.trim();
+    if (!libelle) return { ok: false, error: "Libellé requis" };
+    if (input.moment !== "Matin" && input.moment !== "Soir") return { ok: false, error: "Moment invalide" };
+
+    const admin = supabaseAdmin();
+    // Ajouté en fin de liste de son moment.
+    const { data: dernier } = await admin
+      .from("checklist_items")
+      .select("ordre")
+      .eq("moment", input.moment)
+      .order("ordre", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: cree, error } = await admin
+      .from("checklist_items")
+      .insert({ libelle, moment: input.moment, ordre: (dernier?.ordre ?? 0) + 1 })
+      .select("id")
+      .single();
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, { action: "create", area: "checklist", targetId: cree.id, targetLabel: libelle });
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Renomme / déplace un item (administration). */
+export async function majChecklistItem(
+  itemId: string,
+  input: { libelle?: string; moment?: "Matin" | "Soir" }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") return { ok: false, error: "Accès refusé" };
+
+    const patch: Record<string, unknown> = {};
+    if (input.libelle !== undefined) {
+      const libelle = input.libelle.trim();
+      if (!libelle) return { ok: false, error: "Libellé requis" };
+      patch.libelle = libelle;
+    }
+    if (input.moment !== undefined) {
+      if (input.moment !== "Matin" && input.moment !== "Soir") return { ok: false, error: "Moment invalide" };
+      patch.moment = input.moment;
+    }
+    if (Object.keys(patch).length === 0) return { ok: true };
+
+    const { error } = await supabaseAdmin().from("checklist_items").update(patch).eq("id", itemId);
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, { action: "update", area: "checklist", targetId: itemId, detail: patch });
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Retire un item de la liste (administration).
+ *
+ * `actif = false` plutôt qu'un DELETE : les coches sont liées en cascade, les supprimer
+ * effacerait l'historique de passation des jours passés. L'item disparaît de la carte,
+ * le passé reste intact.
+ */
+export async function retirerChecklistItem(itemId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") return { ok: false, error: "Accès refusé" };
+
+    const { error } = await supabaseAdmin().from("checklist_items").update({ actif: false }).eq("id", itemId);
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, { action: "delete", area: "checklist", targetId: itemId });
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}

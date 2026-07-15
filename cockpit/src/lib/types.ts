@@ -226,6 +226,24 @@ export type Message = {
   created_at: string | null;
 };
 
+/** Un item de la checklist de passation. Défini par l'administration, coché chaque jour. */
+export type ChecklistItem = {
+  id: string;
+  libelle: string;
+  moment: "Matin" | "Soir";
+  ordre: number;
+  actif: boolean;
+  created_at: string | null;
+};
+
+/** Une coche : datée, donc « remise à zéro » chaque jour sans rien purger. */
+export type ChecklistTick = {
+  item_id: string;
+  jour: string;
+  fait_par: string | null;
+  at: string | null;
+};
+
 export type PersonnelRow = {
   notion_id: string;
   nom: string | null;
