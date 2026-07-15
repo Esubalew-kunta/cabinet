@@ -26,23 +26,28 @@ import {
   STATUT_CR,
   CATEGORIES_STOCK,
   UNITES_STOCK,
+  CATEGORIES_TACHE,
+  RECURRENCES,
 } from "@/lib/labels";
-import { tv } from "@/lib/i18n/dict";
+import { tv, RECURRENCE } from "@/lib/i18n/dict";
+import { uniteDisponible, prochaineDisponibilite, type Pret } from "@/lib/appareils";
 import { useTr } from "@/components/i18n-provider";
 import { useToast } from "@/components/toast";
-import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Minus, Package, Pencil, Plus, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCheck, CreditCard, Euro, FolderPlus, Hand, History, Link2, Microscope, Minus, Package, Pencil, Plus, Repeat, Send, Stethoscope, Syringe, Trash2, UserPlus, Watch } from "lucide-react";
+import { cn, formatDate } from "@/lib/utils";
 import {
   verifierDossier,
   devérifierDossier,
   setStatutIntake,
   setStatutMedecin,
   setStatutTache,
+  annulerTerminee,
   reassignerTache,
   prendreTache,
   supprimerTache,
   creerTache,
   majTache,
+  arreterRecurrence,
   creerPatient,
   majPatientInfos,
   enregistrerPaiement,
@@ -213,6 +218,9 @@ export function NouvelleTacheButton({
   const [titre, setTitre] = useState("");
   const [echeance, setEcheance] = useState("");
   const [priorite, setPriorite] = useState("Normale");
+  const [categorie, setCategorie] = useState("");
+  const [recurrente, setRecurrente] = useState(false);
+  const [recurrence, setRecurrence] = useState<string>("weekly");
   const [note, setNote] = useState("");
   // Propriétaire par défaut = Dr Amraoui (owner) : présélectionnée si connue,
   // sinon on retombe sur l'option vide que le serveur résout vers l'owner.
@@ -222,12 +230,21 @@ export function NouvelleTacheButton({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Le motif d'une récurrence EST l'échéance (pas de sélecteur de jour) : sans échéance,
+    // rien à répéter. Bloqué ici pour un message immédiat ; le serveur revérifie.
+    if (recurrente && !echeance) {
+      setError(tr.dialogs.recurrenceNeedsDue);
+      return;
+    }
     run(
       () =>
         creerTache({
           titre,
           echeance: echeance || null,
           priorite,
+          categorie: categorie || null,
+          calendrier: recurrente ? "Récurrente" : "Ponctuelle",
+          recurrence: recurrente ? recurrence : null,
           note: note || null,
           responsable: responsable || null,
           patient: patient || null,
@@ -238,6 +255,8 @@ export function NouvelleTacheButton({
         setTitre("");
         setEcheance("");
         setNote("");
+        setCategorie("");
+        setRecurrente(false);
       },
       tr.toast.taskCreated
     );
@@ -261,6 +280,14 @@ export function NouvelleTacheButton({
               <Select value={priorite} onChange={(e) => setPriorite(e.target.value)}>
                 {["Normale", "À revoir", "Urgent"].map((p) => (
                   <option key={p} value={p}>{tv(lang, p)}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={tr.dialogs.categoryField}>
+              <Select value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+                <option value="">{tr.common.none}</option>
+                {CATEGORIES_TACHE.map((c) => (
+                  <option key={c} value={c}>{tv(lang, c)}</option>
                 ))}
               </Select>
             </Field>
@@ -305,6 +332,32 @@ export function NouvelleTacheButton({
           <Field label={tr.dialogs.noteField}>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr.dialogs.notePlaceholder} />
           </Field>
+
+          {/* Récurrence : le motif vient de l'échéance (« tous les lundis » = échéance un lundi). */}
+          <div className="rounded-lg border border-border p-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={recurrente}
+                onChange={(e) => setRecurrente(e.target.checked)}
+                className="size-4 accent-current"
+              />
+              <Repeat className="size-3.5 text-muted" />
+              {tr.dialogs.recurringLabel}
+            </label>
+            {recurrente && (
+              <div className="mt-3 space-y-2">
+                <Field label={tr.dialogs.recurrenceEvery} hint={tr.dialogs.recurrenceHint}>
+                  <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
+                    {RECURRENCES.map((r) => (
+                      <option key={r} value={r}>{RECURRENCE[lang][r]}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+          </div>
+
           <ErrorText error={error} />
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
@@ -320,11 +373,11 @@ export function NouvelleTacheButton({
   );
 }
 
-/** Édition d'une tâche (titre, échéance, priorité, note) depuis sa fiche. */
+/** Édition d'une tâche (titre, échéance, priorité, catégorie, note) depuis sa fiche. */
 export function ModifierTacheButton({
   tache,
 }: {
-  tache: Pick<Tache, "notion_id" | "titre" | "echeance" | "priorite" | "note">;
+  tache: Pick<Tache, "notion_id" | "titre" | "echeance" | "priorite" | "note" | "categorie">;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -332,12 +385,20 @@ export function ModifierTacheButton({
   const [titre, setTitre] = useState(tache.titre ?? "");
   const [echeance, setEcheance] = useState(tache.echeance ? tache.echeance.slice(0, 16) : "");
   const [priorite, setPriorite] = useState(tache.priorite ?? "Normale");
+  const [categorie, setCategorie] = useState(tache.categorie ?? "");
   const [note, setNote] = useState(tache.note ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     run(
-      () => majTache(tache.notion_id, { titre, echeance: echeance || null, priorite, note: note || null }),
+      () =>
+        majTache(tache.notion_id, {
+          titre,
+          echeance: echeance || null,
+          priorite,
+          categorie: categorie || null,
+          note: note || null,
+        }),
       () => setOpen(false),
       tr.toast.saved
     );
@@ -361,6 +422,14 @@ export function ModifierTacheButton({
               <Select value={priorite} onChange={(e) => setPriorite(e.target.value)}>
                 {["Normale", "À revoir", "Urgent"].map((p) => (
                   <option key={p} value={p}>{tv(lang, p)}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={tr.dialogs.categoryField}>
+              <Select value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+                <option value="">{tr.common.none}</option>
+                {CATEGORIES_TACHE.map((c) => (
+                  <option key={c} value={c}>{tv(lang, c)}</option>
                 ))}
               </Select>
             </Field>
@@ -395,10 +464,13 @@ export function TacheTermineeButton({ tacheId, statut }: { tacheId: string; stat
         setError(res.error);
         return;
       }
+      // On passe l'instance engendrée : annuler doit AUSSI la retirer, sinon la série se
+      // retrouve avec deux tâches ouvertes.
+      const suivanteId = res.suivanteId;
       toast(tr.toast.taskDone, "success", {
         label: tr.common.undo,
         onAction: async () => {
-          await setStatutTache(tacheId, statut ?? "À faire");
+          await annulerTerminee(tacheId, statut ?? "À faire", suivanteId);
           router.refresh();
         },
       });
@@ -464,6 +536,40 @@ export function SupprimerTacheButton({ tacheId }: { tacheId: string }) {
               onClick={() => run(() => supprimerTache(tacheId), () => setOpen(false), tr.toast.taskDeleted)}
             >
               {tr.common.confirmDelete}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * Arrête la récurrence d'une tâche.
+ * Seule façon de terminer une série : sans ça, clôturer une instance en engendre
+ * une autre indéfiniment.
+ */
+export function ArreterRecurrenceButton({ tacheId }: { tacheId: string }) {
+  const [open, setOpen] = useState(false);
+  const { pending, error, run, setError } = useAction();
+  const { tr } = useTr();
+
+  return (
+    <>
+      <Button size="sm" variant="secondary" onClick={() => { setError(null); setOpen(true); }}>
+        <Repeat className="size-3.5" /> {tr.dialogs.stopRecurrence}
+      </Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={tr.dialogs.stopRecurrence} icon={<Repeat />}>
+        <div className="space-y-4">
+          <p className="text-sm">{tr.dialogs.stopRecurrenceConfirm}</p>
+          <ErrorText error={error} />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setOpen(false)}>{tr.common.cancel}</Button>
+            <Button
+              loading={pending}
+              onClick={() => run(() => arreterRecurrence(tacheId), () => setOpen(false), tr.toast.saved)}
+            >
+              {tr.dialogs.stopRecurrence}
             </Button>
           </div>
         </div>
@@ -1024,6 +1130,18 @@ export function OrdonnanceToggle({ dossierId, value }: { dossierId: string; valu
 
 /* ---------- Examens : pose, CAT, suivi appareillage, pénalité ---------- */
 
+/**
+ * Une unité du parc, avec ses prêts ouverts (en cours ET réservations à venir).
+ *
+ * `prets` est REQUIS, à dessein : la disponibilité se juge sur la date demandée, pas sur
+ * `etat` qui ne décrit que l'instant présent. Un appelant qui l'oublierait afficherait
+ * « tout est libre » avant de se faire refuser par le serveur — le rendre optionnel
+ * laisserait le compilateur passer à côté.
+ */
+export type Unite = Pick<Appareil, "notion_id" | "ref_appareil" | "type" | "etat"> & {
+  prets: Pret[];
+};
+
 export function NouvelExamenButton({
   patients,
   interpretes,
@@ -1033,40 +1151,67 @@ export function NouvelExamenButton({
 }: {
   patients: { notion_id: string; nom: string | null }[];
   interpretes: { notion_id: string; nom: string | null }[];
-  unites: Pick<Appareil, "notion_id" | "ref_appareil" | "type" | "etat">[];
+  unites: Unite[];
   defaultPatient?: string;
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
   const { lang, tr } = useTr();
-  // Unités libres par type ; on démarre sur un type qui a du stock, unité auto-choisie.
-  const freeOf = (t: string) => unites.filter((u) => u.type === t && u.etat === "Au cabinet");
-  const initialType = TYPES_APPAREIL.find((t) => freeOf(t).length > 0) ?? TYPES_APPAREIL[0];
-  const [type, setType] = useState<string>(initialType);
-  const [patient, setPatient] = useState(defaultPatient ?? "");
-  const [unite, setUnite] = useState(freeOf(initialType)[0]?.notion_id ?? "");
-  const [indication, setIndication] = useState("");
-  const [site, setSite] = useState<string>(SITES[0]);
   const today = new Date().toISOString().slice(0, 10);
   const [pose, setPose] = useState(today);
+
+  // Disponibilité jugée à la DATE demandée, pas sur l'état courant : c'est ce qui
+  // permet de réserver un appareil encore dehors mais rendu d'ici là.
+  const horsService = (u: Unite) => Boolean(u.etat) && !["Au cabinet", "Dehors"].includes(u.etat!);
+  // `fin` = retour prévu demandé. Sans lui, la disponibilité ne peut être jugée que sur la
+  // date de pose ; le serveur, qui l'exige, tranchera sur la plage complète.
+  const freeOf = (t: string, date: string, fin: string | null) =>
+    unites.filter((u) => u.type === t && !horsService(u) && uniteDisponible(u.prets, date, fin, today));
+  const ofType = (t: string) => unites.filter((u) => u.type === t && !horsService(u));
+
+  const initialType = TYPES_APPAREIL.find((t) => freeOf(t, today, null).length > 0) ?? TYPES_APPAREIL[0];
+  const [type, setType] = useState<string>(initialType);
+  const [patient, setPatient] = useState(defaultPatient ?? "");
+  const [unite, setUnite] = useState(freeOf(initialType, today, null)[0]?.notion_id ?? "");
+  const [indication, setIndication] = useState("");
+  const [site, setSite] = useState<string>(SITES[0]);
   const [retour, setRetour] = useState("");
   const [interprete, setInterprete] = useState("");
 
-  const libres = freeOf(type);
+  const libres = freeOf(type, pose, retour || null);
+  // Les autres unités du type, avec la date à laquelle elles se libèrent : bien plus utile
+  // qu'une liste vide quand tout est sorti (« Holter n°2 — libre à partir du 7 juin »).
+  const occupees = ofType(type)
+    .filter((u) => !libres.some((l) => l.notion_id === u.notion_id))
+    .map((u) => ({ u, libre: prochaineDisponibilite(u.prets, pose, retour || null, today) }))
+    .sort((a, b) => (a.libre ?? "9999").localeCompare(b.libre ?? "9999"));
+
+  // Changer la date de pose peut invalider l'unité choisie : on la libère plutôt que
+  // d'envoyer au serveur un choix qu'il refusera.
+  const uniteEncoreValide = !unite || libres.some((u) => u.notion_id === unite);
+  const uniteEffective = uniteEncoreValide ? unite : "";
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!uniteEffective) {
+      setError(tr.examens.unitRequired);
+      return;
+    }
+    if (!retour) {
+      setError(tr.examens.returnRequired);
+      return;
+    }
     run(
       () =>
         creerExamen({
           type,
           patient,
-          appareil: unite || null,
+          appareil: uniteEffective,
           indication: indication || null,
           site,
           date_pose: pose,
-          restitution_prevue: retour || null,
+          restitution_prevue: retour,
           interprete: interprete || null,
         }),
       () => {
@@ -1094,18 +1239,29 @@ export function NouvelExamenButton({
           </Field>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.common.type} hint={tr.examens.availabilityHint}>
-              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t)[0]?.notion_id ?? ""); }}>
+              <Select value={type} onChange={(e) => { const t = e.target.value; setType(t); setUnite(freeOf(t, pose, retour || null)[0]?.notion_id ?? ""); }}>
                 {TYPES_APPAREIL.map((t) => {
-                  const n = freeOf(t).length;
-                  return <option key={t} value={t} disabled={n === 0}>{t} — {tr.examens.availableCount(n)}</option>;
+                  const n = freeOf(t, pose, retour || null).length;
+                  return <option key={t} value={t}>{t} — {tr.examens.availableCount(n)}</option>;
                 })}
               </Select>
             </Field>
             <Field label={tr.examens.unitLabel} hint={tr.examens.unitHint}>
-              <Select value={unite} onChange={(e) => setUnite(e.target.value)}>
-                <option value="">{libres.length === 0 ? tr.examens.noFreeUnit : tr.examens.unitNone}</option>
+              <Select value={uniteEffective} onChange={(e) => setUnite(e.target.value)} required>
+                {/* Plus d'option « Sans appareil » : un examen immobilise toujours un boîtier.
+                    Quand rien n'est libre à cette date, on ANNONCE la date de libération
+                    plutôt que d'afficher une liste vide (décision réunion juil. 2026). */}
+                <option value="" disabled>
+                  {libres.length === 0 ? tr.examens.noFreeUnit : tr.common.choose}
+                </option>
                 {libres.map((u) => (
                   <option key={u.notion_id} value={u.notion_id}>{u.ref_appareil}</option>
+                ))}
+                {occupees.map(({ u, libre }) => (
+                  <option key={u.notion_id} value={u.notion_id} disabled>
+                    {/* formatDate : sans lui, l'ISO brut « 2026-06-07 » s'afficherait à l'écran */}
+                    {u.ref_appareil} — {libre ? tr.examens.freeFrom(formatDate(libre, lang)) : tr.examens.freeUnknown}
+                  </option>
                 ))}
               </Select>
             </Field>
@@ -1127,8 +1283,10 @@ export function NouvelExamenButton({
             <Field label={tr.examens.poseLabel}>
               <Input type="date" value={pose} onChange={(e) => setPose(e.target.value)} required />
             </Field>
-            <Field label={tr.examens.returnLabel}>
-              <Input type="date" value={retour} onChange={(e) => setRetour(e.target.value)} />
+            {/* Requis : sans retour prévu, la fin du prêt est inconnue et l'unité serait
+                bloquée indéfiniment pour tous les suivants. */}
+            <Field label={tr.examens.returnLabel} hint={tr.examens.returnHint}>
+              <Input type="date" value={retour} min={pose} onChange={(e) => setRetour(e.target.value)} required />
             </Field>
             <Field label={tr.examens.colInterpreter}>
               <Select value={interprete} onChange={(e) => setInterprete(e.target.value)}>
@@ -1459,8 +1617,11 @@ export function FacturerPenaliteButton({ examenId, days, amount }: { examenId: s
 
 export function NouvellePerfusionButton({
   patients,
+  praticiens = [],
 }: {
   patients: { notion_id: string; nom: string | null }[];
+  /** Qui peut faire la séance. Sans praticien, aucune part n'est calculable. */
+  praticiens?: { notion_id: string; nom: string | null }[];
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -1473,6 +1634,7 @@ export function NouvellePerfusionButton({
   const [bio, setBio] = useState("");
   const [hono, setHono] = useState("");
   const [forfait, setForfait] = useState("");
+  const [praticien, setPraticien] = useState("");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1486,10 +1648,11 @@ export function NouvellePerfusionButton({
           bilan_bio: bio || null,
           honoraire_ipa: hono ? Number(hono) : null,
           forfait: forfait ? Number(forfait) : null,
+          praticien: praticien || null,
         }),
       () => {
         setOpen(false);
-        setComposants(""); setDuree(""); setHono(""); setForfait("");
+        setComposants(""); setDuree(""); setHono(""); setForfait(""); setPraticien("");
       },
       tr.toast.perfusionCreated
     );
@@ -1510,6 +1673,16 @@ export function NouvellePerfusionButton({
               ))}
             </Select>
           </Field>
+          {praticiens.length > 0 && (
+            <Field label={tr.perfusions.practitioner} hint={tr.perfusions.practitionerHint}>
+              <Select value={praticien} onChange={(e) => setPraticien(e.target.value)}>
+                <option value="">{tr.common.choose}</option>
+                {praticiens.map((p) => (
+                  <option key={p.notion_id} value={p.notion_id}>{p.nom}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.perfusions.dateLabel}>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
@@ -1549,8 +1722,13 @@ export function NouvellePerfusionButton({
 /** Édition d'une séance de perfusion enregistrée (le patient reste fixe). */
 export function ModifierPerfusionButton({
   perfusion,
+  praticiens = [],
 }: {
-  perfusion: Pick<Perfusion, "notion_id" | "date_perfusion" | "composants" | "duree" | "bilan_bio" | "honoraire_ipa" | "notes">;
+  perfusion: Pick<
+    Perfusion,
+    "notion_id" | "date_perfusion" | "composants" | "duree" | "bilan_bio" | "honoraire_ipa" | "notes" | "praticien"
+  >;
+  praticiens?: { notion_id: string; nom: string | null }[];
 }) {
   const [open, setOpen] = useState(false);
   const { pending, error, run, setError } = useAction();
@@ -1561,6 +1739,7 @@ export function ModifierPerfusionButton({
   const [bio, setBio] = useState(perfusion.bilan_bio ?? "");
   const [hono, setHono] = useState(perfusion.honoraire_ipa != null ? String(perfusion.honoraire_ipa) : "");
   const [notes, setNotes] = useState(perfusion.notes ?? "");
+  const [praticien, setPraticien] = useState(perfusion.praticien?.[0] ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1573,6 +1752,7 @@ export function ModifierPerfusionButton({
           bilan_bio: bio || null,
           honoraire_ipa: hono ? Number(hono) : null,
           notes: notes || null,
+          praticien: praticien || null,
         }),
       () => setOpen(false),
       tr.toast.saved
@@ -1591,6 +1771,16 @@ export function ModifierPerfusionButton({
       </button>
       <Dialog open={open} onClose={() => setOpen(false)} title={tr.perfusions.editSession} icon={<Pencil />}>
         <form onSubmit={submit} className="space-y-3">
+          {praticiens.length > 0 && (
+            <Field label={tr.perfusions.practitioner} hint={tr.perfusions.practitionerHint}>
+              <Select value={praticien} onChange={(e) => setPraticien(e.target.value)}>
+                <option value="">{tr.common.choose}</option>
+                {praticiens.map((p) => (
+                  <option key={p.notion_id} value={p.notion_id}>{p.nom}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={tr.perfusions.dateLabel}>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />

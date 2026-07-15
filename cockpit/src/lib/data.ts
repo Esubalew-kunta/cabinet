@@ -52,9 +52,21 @@ export const getSecretaires = cache(async (): Promise<PersonnelRow[]> => {
  * Réglages du cabinet (table parametres) sous forme de Map nom→valeur.
  * Chargé une fois par requête ; les défauts sont gérés côté appelant.
  */
+/**
+ * Les réglages d'exploitation, lus AVEC LE SERVICE ROLE.
+ *
+ * `parametres` est en RLS derrière `app_perm('admin_stats') = 'full'` : une secrétaire lit
+ * donc une liste VIDE. Via `supabaseServer()`, chaque `settings.get(...)` retombait sur son
+ * défaut — et `secretary_self_edit` valait « on » quoi qu'il arrive, pour précisément les
+ * gens qu'il doit restreindre. Le garde-fou serveur (`assertCanWriteHoraire`, service role)
+ * refusait bien l'écriture : la page proposait des boutons qui échouaient à l'envoi.
+ * Idem pour les heures d'ouverture, figées à 08:00-19:00 côté secrétariat.
+ *
+ * Helper serveur uniquement : rien ici n'est secret (horaires, tarifs, bascules) et seules
+ * les valeurs déjà destinées au client ressortent des pages qui l'appellent.
+ */
 export const getSettingsMap = cache(async (): Promise<Map<string, string>> => {
-  const supa = await supabaseServer();
-  const { data } = await supa.from("parametres").select("parametre, valeur");
+  const { data } = await supabaseAdmin().from("parametres").select("parametre, valeur");
   const m = new Map<string, string>();
   for (const r of (data ?? []) as { parametre: string | null; valeur: string | null }[]) {
     if (r.parametre) m.set(r.parametre, (r.valeur ?? "").trim());

@@ -63,7 +63,23 @@ export const DOMAINE_TACHE: Record<string, Tone> = {
   "Projets": tone("orange"),
 };
 
-// Récurrences : libellés FR/EN dans src/lib/i18n/dict.ts (RECURRENCE)
+/**
+ * Tâches — Catégorie (réunion juil. 2026).
+ * Axe distinct de Domaine : Domaine porte la confidentialité (RLS « Personnel »),
+ * Catégorie sert au tri quotidien du cabinet.
+ */
+export const CATEGORIE_TACHE: Record<string, Tone> = {
+  "Administration": tone("blue"),
+  "Patient": tone("violet"),
+  "Mobilier": tone("orange"),
+  "Paiement": tone("green"),
+};
+
+export const CATEGORIES_TACHE = ["Administration", "Patient", "Mobilier", "Paiement"] as const;
+
+/** Options Notion de « Récurrence » (valeurs stockées telles quelles ; libellés : dict RECURRENCE). */
+export const RECURRENCES = ["daily", "weekdays", "weekly", "monthly", "yearly"] as const;
+export type RecurrenceKey = (typeof RECURRENCES)[number];
 
 /** Examens / appareils */
 export const STATUT_APPAREIL: Record<string, Tone> = {
@@ -102,7 +118,9 @@ export const ETAT_APPAREIL_UNITE: Record<string, Tone> = {
   "Réformé": tone("gray"),
 };
 
-export const TYPES_APPAREIL = ["Holter rythmique", "Holter tensionnel", "Polygraphie", "Moniteur ECG"] as const;
+// « Moniteur ECG » retiré en juil. 2026 (réunion) : unité archivée dans Notion et
+// option supprimée des deux selects « Type » (Appareils et Examens).
+export const TYPES_APPAREIL = ["Holter rythmique", "Holter tensionnel", "Polygraphie"] as const;
 
 /** Dossiers — cycle de vie du compte rendu */
 export const STATUT_CR: Record<string, Tone> = {
@@ -180,6 +198,7 @@ export const ROLE_TONES: Record<string, Tone> = {
 /** Ordre d'affichage des zones de la matrice de permissions */
 export const AREA_KEYS = [
   "patients_all", "patients_own", "dossiers_all", "dossiers_own", "taches", "taches_perso_dr",
+  "messages", "checklist",
   "examens", "stock", "planning", "perfusions", "paiements_own", "paiements_all", "finances", "admin_stats",
   "gestion_comptes", "sync",
 ] as const;

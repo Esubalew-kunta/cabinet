@@ -13,6 +13,7 @@ import {
 } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
 import { tv } from "@/lib/i18n/dict";
+import { statutRetour, pretDeExamen } from "@/lib/appareils";
 import { EncaisserButton, ModifierPatientButton, NouveauDossierButton, NouvelleTacheButton } from "@/components/interactive";
 import { ExternalLink, ArrowLeft, Phone, Mail, MapPin, Cake, StickyNote, FolderOpen, Activity, CreditCard, Syringe, ListChecks } from "lucide-react";
 import type { Patient, Dossier, Examen, Paiement, Perfusion, Tache } from "@/lib/types";
@@ -23,6 +24,7 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
   const { lang, tr } = await getTr();
 
   const { id } = await params;
+  const aujourdhui = new Date().toISOString().slice(0, 10);
   const supa = await supabaseServer();
 
   const { data: patientRow } = await supa.from("patients").select("*").eq("notion_id", id).maybeSingle();
@@ -203,7 +205,9 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
                     <td className="text-xs">{e.type ?? EMPTY}</td>
                     <td className="whitespace-nowrap">{formatDate(e.date_pose, lang)}</td>
                     <td className="whitespace-nowrap">{formatDate(e.restitution_prevue, lang)}</td>
-                    <td><StatusBadge value={e.statut_appareil} map={STATUT_APPAREIL} /></td>
+                    {/* Dérivé des dates : la colonne `statut_appareil` ne reçoit plus
+                        « Bientôt dû » ni « En retard » (cf. lib/appareils.ts). */}
+                    <td><StatusBadge value={statutRetour(pretDeExamen(e, aujourdhui), aujourdhui)} map={STATUT_APPAREIL} /></td>
                   </Tr>
                 ))}
               </TBody>

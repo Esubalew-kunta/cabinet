@@ -7,50 +7,18 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { notion, withNotionRetry } from "@/lib/notion/client";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSession, can } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { SOURCES } from "@/lib/notion/sources";
+import { P, notionCreate, notionUpdate, notionArchive } from "@/lib/notion/write";
 import { isValidRange, isoWeek, addDays } from "@/lib/horaires";
+import { estRecurrente } from "@/lib/recurrence";
+import { genererInstanceSuivante } from "@/lib/taches-recurrence";
+import { jour, uniteDisponible, prochaineDisponibilite } from "@/lib/appareils";
+import { ETAT_APPAREIL_UNITE } from "@/lib/labels";
 import { randomUUID } from "node:crypto";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const ds = (table: string) => {
-  const s = SOURCES.find((s) => s.table === table);
-  if (!s) throw new Error(`source inconnue: ${table}`);
-  return s.dataSourceId;
-};
-
-// ---------- constructeurs de propriétés Notion ----------
-const P = {
-  title: (v: string) => ({ title: [{ text: { content: v } }] }),
-  text: (v: string | null) => ({ rich_text: v ? [{ text: { content: v } }] : [] }),
-  select: (v: string | null) => ({ select: v ? { name: v } : null }),
-  multi: (v: string[]) => ({ multi_select: v.map((name) => ({ name })) }),
-  date: (v: string | null) => ({ date: v ? { start: v } : null }),
-  checkbox: (v: boolean) => ({ checkbox: v }),
-  number: (v: number | null) => ({ number: v }),
-  phone: (v: string | null) => ({ phone_number: v || null }),
-  email: (v: string | null) => ({ email: v || null }),
-  url: (v: string | null) => ({ url: v || null }),
-  relation: (ids: string[]) => ({ relation: ids.map((id) => ({ id })) }),
-};
-
-async function notionUpdate(pageId: string, properties: Record<string, any>) {
-  await withNotionRetry(() => notion().pages.update({ page_id: pageId, properties }));
-}
-
-async function notionCreate(table: string, properties: Record<string, any>): Promise<string> {
-  const res: any = await withNotionRetry(() =>
-    notion().pages.create({
-      parent: { type: "data_source_id", data_source_id: ds(table) },
-      properties,
-    })
-  );
-  return res.id as string;
-}
 
 function refresh() {
   for (const p of ["/secretariat", "/medecin", "/patients", "/taches", "/finances", "/admin", "/examens", "/perfusions", "/appareils", "/dossiers", "/inventaire"]) {
@@ -333,6 +301,7 @@ export async function creerTache(input: {
   echeance?: string | null;
   priorite?: string | null;
   domaine?: string | null;
+  categorie?: string | null;
   calendrier?: string | null;
   recurrence?: string | null;
   note?: string | null;
@@ -344,6 +313,12 @@ export async function creerTache(input: {
     const session = await getSession();
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
     if (!input.titre.trim()) return { ok: false, error: "Titre requis" };
+
+    // Une tâche récurrente sans échéance n'a pas de motif : le motif EST l'échéance.
+    const recurrente = estRecurrente(input.calendrier ?? null, input.recurrence ?? null);
+    if (recurrente && !input.echeance) {
+      return { ok: false, error: "Une tâche récurrente doit avoir une échéance (elle porte le motif)" };
+    }
 
     const admin = supabaseAdmin();
 
@@ -363,6 +338,9 @@ export async function creerTache(input: {
     // Notifier l'assigné par email (B3) quand la tâche est confiée à QUELQU'UN D'AUTRE.
     const notify = !!(responsable && responsable !== session.member.personnel_notion_id);
 
+    // Chaîne d'instances d'une série récurrente (idempotence du générateur).
+    const groupId = recurrente ? randomUUID() : null;
+
     const props: Record<string, any> = {
       Titre: P.title(input.titre.trim()),
       Statut: P.select("À faire"),
@@ -371,7 +349,9 @@ export async function creerTache(input: {
       Priorité: P.select(input.priorite ?? "Normale"),
     };
     if (input.echeance) props["Échéance"] = P.date(input.echeance);
-    if (input.recurrence && input.calendrier === "Récurrente") props["Récurrence"] = P.select(input.recurrence);
+    if (recurrente) props["Récurrence"] = P.select(input.recurrence!);
+    if (input.categorie) props["Catégorie"] = P.select(input.categorie);
+    if (groupId) props["Groupe récurrence"] = P.text(groupId);
     if (input.note) props["Note"] = P.text(input.note);
     if (responsable) props["Responsable"] = P.relation([responsable]);
     if (notify) props["Notifier"] = P.checkbox(true);
@@ -386,10 +366,12 @@ export async function creerTache(input: {
       titre: input.titre.trim(),
       statut: "À faire",
       calendrier: input.calendrier ?? "Ponctuelle",
-      recurrence: input.calendrier === "Récurrente" ? input.recurrence ?? null : null,
+      recurrence: recurrente ? input.recurrence ?? null : null,
+      recurring_group_id: groupId,
       echeance: input.echeance ?? null,
       priorite: input.priorite ?? "Normale",
       domaine: input.domaine ?? "Clinique",
+      categorie: input.categorie ?? null,
       note: input.note ?? null,
       notifier: notify,
       responsable: responsable ? [responsable] : [],
@@ -406,13 +388,108 @@ export async function creerTache(input: {
   }
 }
 
-export async function setStatutTache(tacheId: string, statut: string): Promise<ActionResult> {
+/**
+ * `suivanteId` = l'instance engendrée par cette clôture, s'il y en a une. Le client en a
+ * besoin pour que « Annuler » puisse la retirer (cf. annulerTerminee) : sans ça, annuler
+ * rouvrait la tâche en laissant la suivante — deux tâches ouvertes de la même série.
+ */
+export async function setStatutTache(
+  tacheId: string,
+  statut: string
+): Promise<{ ok: true; suivanteId?: string } | { ok: false; error: string }> {
   try {
     const session = await getSession();
     if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
     await notionUpdate(tacheId, { Statut: P.select(statut) });
     await supabaseAdmin().from("taches").update({ statut }).eq("notion_id", tacheId);
     await logAudit(session, { action: "status", area: "taches", targetId: tacheId, detail: { statut } });
+
+    // Clôturer une instance récurrente engendre la suivante. Fait ICI, dans la MÊME action :
+    // Next 16 sérialise les server actions d'un client, deux actions séparées ne se
+    // recouvriraient donc pas — et « terminé » sans « suivante » romprait la série.
+    //
+    // Isolé dans son propre try : la tâche est DÉJÀ marquée terminée côté Notion et
+    // Supabase. Laisser remonter l'erreur afficherait « échec » sur une clôture réussie.
+    // Le filet du cron (rattraperRecurrences, toutes les 2 h) réparera la série.
+    let suivanteId: string | undefined;
+    if (statut === "Terminé") {
+      try {
+        const suivante = await genererInstanceSuivante(tacheId);
+        if (suivante) {
+          suivanteId = suivante.pageId;
+          await logAudit(session, {
+            action: "create",
+            area: "taches",
+            targetId: suivante.pageId,
+            detail: { recurrence: "instance suivante", echeance: suivante.echeance, groupe: suivante.groupId },
+          });
+        }
+      } catch {
+        // best-effort : le cron rattrapera
+      }
+    }
+
+    refresh();
+    return { ok: true, suivanteId };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Annule une clôture (bouton « Annuler » du toast).
+ *
+ * Rouvrir la tâche ne suffit PAS : si elle était récurrente, `setStatutTache` vient
+ * d'engendrer l'instance suivante. La laisser en place donnerait deux tâches ouvertes de la
+ * même série — l'annulation n'annulait donc qu'à moitié.
+ *
+ * Les deux effets sont défaits ici, dans UNE action : Next 16 sérialise les server actions
+ * d'un même client, deux appels séparés ne se recouvriraient pas.
+ */
+export async function annulerTerminee(
+  tacheId: string,
+  statutPrecedent: string,
+  suivanteId?: string | null
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
+
+    await notionUpdate(tacheId, { Statut: P.select(statutPrecedent) });
+    await supabaseAdmin().from("taches").update({ statut: statutPrecedent }).eq("notion_id", tacheId);
+    await logAudit(session, {
+      action: "status",
+      area: "taches",
+      targetId: tacheId,
+      detail: { statut: statutPrecedent, annulation: true },
+    });
+
+    if (suivanteId) {
+      // Prudent à dessein : on ne retire que l'instance engendrée à l'instant, et seulement
+      // si personne n'y a touché entre-temps (toujours « À faire »). Best-effort — une
+      // instance de trop se corrige à la main, une clôture rouverte de force, non.
+      try {
+        const admin = supabaseAdmin();
+        const { data: suivante } = await admin
+          .from("taches")
+          .select("notion_id, statut")
+          .eq("notion_id", suivanteId)
+          .maybeSingle();
+        if (suivante && suivante.statut === "À faire") {
+          await notionArchive(suivanteId);
+          await admin.from("taches").delete().eq("notion_id", suivanteId);
+          await logAudit(session, {
+            action: "delete",
+            area: "taches",
+            targetId: suivanteId,
+            detail: { recurrence: "instance suivante annulée" },
+          });
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
     refresh();
     return { ok: true };
   } catch (e) {
@@ -420,10 +497,70 @@ export async function setStatutTache(tacheId: string, statut: string): Promise<A
   }
 }
 
-/** Édition d'une tâche (titre, échéance, priorité, note) — rien n'est figé. */
+/**
+ * Arrête la récurrence : plus aucune instance ne sera engendrée.
+ *
+ * Le générateur repart toujours de l'instance la PLUS RÉCENTE du groupe (cf.
+ * rattraperRecurrences). Arrêter revient donc à faire repasser cette dernière en
+ * « Ponctuelle » — pas seulement celle sur laquelle on a cliqué, qui peut être une
+ * ancienne instance déjà clôturée. Sans ça, le filet du cron ressusciterait la série.
+ *
+ * L'écriture va dans NOTION (source de vérité des tâches) avant le miroir Supabase :
+ * un correctif Supabase seul serait écrasé au prochain pull, et la série repartirait.
+ */
+export async function arreterRecurrence(tacheId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "taches")) return { ok: false, error: "Accès refusé" };
+    const admin = supabaseAdmin();
+
+    const { data: cible } = await admin
+      .from("taches")
+      .select("notion_id, recurring_group_id")
+      .eq("notion_id", tacheId)
+      .maybeSingle();
+
+    // La cible cliquée + la plus récente du groupe (souvent la même).
+    const aArreter = new Set<string>([tacheId]);
+    if (cible?.recurring_group_id) {
+      const { data: derniere } = await admin
+        .from("taches")
+        .select("notion_id")
+        .eq("recurring_group_id", cible.recurring_group_id)
+        .order("echeance", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (derniere?.notion_id) aArreter.add(derniere.notion_id);
+    }
+
+    for (const id of aArreter) {
+      await notionUpdate(id, { Calendrier: P.select("Ponctuelle"), "Récurrence": P.select(null) });
+      await admin.from("taches").update({ calendrier: "Ponctuelle", recurrence: null }).eq("notion_id", id);
+    }
+
+    await logAudit(session, {
+      action: "update",
+      area: "taches",
+      targetId: tacheId,
+      detail: { recurrence: "arrêtée", instances: aArreter.size },
+    });
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Édition d'une tâche (titre, échéance, priorité, catégorie, note) — rien n'est figé. */
 export async function majTache(
   tacheId: string,
-  input: { titre?: string | null; echeance?: string | null; priorite?: string | null; note?: string | null }
+  input: {
+    titre?: string | null;
+    echeance?: string | null;
+    priorite?: string | null;
+    categorie?: string | null;
+    note?: string | null;
+  }
 ): Promise<ActionResult> {
   try {
     const session = await getSession();
@@ -431,6 +568,7 @@ export async function majTache(
     const patch: Record<string, any> = {
       "Échéance": P.date(input.echeance ?? null),
       "Priorité": P.select(input.priorite ?? "Normale"),
+      "Catégorie": P.select(input.categorie || null),
       "Note": P.text(input.note ?? null),
     };
     if (input.titre && input.titre.trim()) patch["Titre"] = P.title(input.titre.trim());
@@ -441,6 +579,7 @@ export async function majTache(
         ...(input.titre && input.titre.trim() ? { titre: input.titre.trim() } : {}),
         echeance: input.echeance || null,
         priorite: input.priorite ?? "Normale",
+        categorie: input.categorie || null,
         note: input.note || null,
       })
       .eq("notion_id", tacheId);
@@ -496,7 +635,7 @@ export async function supprimerTache(tacheId: string): Promise<ActionResult> {
     if (!session.member.is_owner && session.member.role !== "admin") {
       return { ok: false, error: "Accès refusé" };
     }
-    await withNotionRetry(() => notion().pages.update({ page_id: tacheId, archived: true }));
+    await notionArchive(tacheId);
     await supabaseAdmin().from("taches").delete().eq("notion_id", tacheId);
     await logAudit(session, { action: "delete", area: "taches", targetId: tacheId });
     refresh();
@@ -609,9 +748,15 @@ export async function creerPaiement(input: {
 // ============================================================
 
 /**
- * Pose d'un examen : choisit une unité LIBRE du parc (Appareils) ; l'unité
- * passe « Dehors » et reste liée à l'examen jusqu'au retour. La réf de l'unité
- * est copiée dans « Numéro appareil » (historique conservé après restitution).
+ * Pose (ou RÉSERVATION) d'un examen.
+ *
+ * Une réservation n'est rien d'autre qu'un examen dont la « Date de pose » est à venir :
+ * pas de nouvelle entité. La disponibilité se juge sur la PLAGE demandée, pas sur l'état
+ * courant de l'unité — c'est ce qui permet le cas de la réunion : appareil attendu le 6,
+ * on réserve dès aujourd'hui pour le 7.
+ *
+ * L'unité ne passe « Dehors » que le jour de la pose : la réserver pour dans trois mois
+ * ne doit pas l'immobiliser aujourd'hui (c'était le comportement précédent).
  */
 export async function creerExamen(input: {
   type: string;
@@ -630,25 +775,70 @@ export async function creerExamen(input: {
     if (!input.patient) return { ok: false, error: "Patient requis" };
 
     const admin = supabaseAdmin();
+    const today = new Date().toISOString().slice(0, 10);
+    const posee = jour(input.date_pose)!;
+    // La pose est-elle à venir ? Alors c'est une réservation : l'unité reste au cabinet.
+    const estReservation = posee > today;
+
     let uniteRef: string | null = null;
     if (input.appareil) {
+      // Sans retour prévu, la fin du prêt est inconnue : plus aucun chevauchement
+      // n'est calculable et l'unité serait bloquée indéfiniment pour les suivants.
+      if (!input.restitution_prevue) {
+        return { ok: false, error: "Retour prévu requis pour immobiliser un appareil" };
+      }
+      if (jour(input.restitution_prevue)! < posee) {
+        return { ok: false, error: "Le retour prévu ne peut pas précéder la pose" };
+      }
+
       const { data: unite } = await admin
         .from("appareils")
         .select("ref_appareil, etat")
         .eq("notion_id", input.appareil)
         .single();
       if (!unite) return { ok: false, error: "Unité introuvable (synchronisation ?)" };
-      if (unite.etat !== "Au cabinet") return { ok: false, error: `Unité indisponible (${unite.etat})` };
+
+      // Hors service : aucune date n'y changera rien.
+      if (unite.etat && !["Au cabinet", "Dehors"].includes(unite.etat)) {
+        return { ok: false, error: `Unité indisponible (${unite.etat})` };
+      }
+
+      // Disponibilité par PLAGE : les prêts ouverts de cette unité (pose passée
+      // comme à venir) sont confrontés à la date demandée.
+      const { data: prets } = await admin
+        .from("examens")
+        .select("notion_id, date_pose, restitution_prevue, restitution_effective")
+        .contains("appareil", [input.appareil])
+        .is("restitution_effective", null);
+
+      const ouverts = (prets ?? []).map((e) => ({
+        id: e.notion_id,
+        debut: e.date_pose ?? today,
+        retourPrevu: e.restitution_prevue,
+        retourEffectif: e.restitution_effective,
+      }));
+
+      const rendue = jour(input.restitution_prevue);
+      if (!uniteDisponible(ouverts, posee, rendue, today)) {
+        const libre = prochaineDisponibilite(ouverts, posee, rendue, today);
+        return {
+          ok: false,
+          error: libre
+            ? `Unité indisponible à cette date — libre à partir du ${libre}`
+            : "Unité indisponible : un prêt en cours n'a pas de date de retour",
+        };
+      }
       uniteRef = unite.ref_appareil;
     }
 
     const ref = `EX-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+    const statutAppareil = estReservation ? "Disponible" : "Remis";
     const props: Record<string, any> = {
       "Réf examen": P.title(ref),
       Type: P.select(input.type),
       Patient: P.relation([input.patient]),
       "Date de pose": P.date(input.date_pose),
-      "Statut appareil": P.select("Remis"),
+      "Statut appareil": P.select(statutAppareil),
     };
     if (input.appareil) props["Appareil"] = P.relation([input.appareil]);
     if (uniteRef) props["Numéro appareil"] = P.text(uniteRef);
@@ -660,9 +850,10 @@ export async function creerExamen(input: {
 
     const pageId = await notionCreate("examens", props);
 
-    // L'unité sort du cabinet (la relation « Examen en cours » est déjà
-    // synchronisée côté Notion — relation double —, on ne pousse que l'État).
-    if (input.appareil) {
+    // L'unité ne sort QUE si la pose est aujourd'hui : une réservation pour plus tard
+    // la laisse au cabinet et disponible entre-temps (la relation « Examen en cours »
+    // est déjà synchronisée côté Notion — relation double —, on ne pousse que l'État).
+    if (input.appareil && !estReservation) {
       await notionUpdate(input.appareil, { "État": P.select("Dehors") });
       await admin
         .from("appareils")
@@ -676,7 +867,7 @@ export async function creerExamen(input: {
       type: input.type,
       indication: input.indication ?? null,
       site: input.site ?? null,
-      statut_appareil: "Remis",
+      statut_appareil: statutAppareil,
       numero_appareil: uniteRef,
       date_pose: input.date_pose,
       restitution_prevue: input.restitution_prevue ?? null,
@@ -686,7 +877,13 @@ export async function creerExamen(input: {
       responsable: input.responsable ? [input.responsable] : [],
       created_time: new Date().toISOString(),
     });
-    await logAudit(session, { action: "assign", area: "examens", targetId: pageId, targetLabel: ref, detail: { type: input.type } });
+    await logAudit(session, {
+      action: estReservation ? "reserve" : "assign",
+      area: "examens",
+      targetId: pageId,
+      targetLabel: ref,
+      detail: { type: input.type, date_pose: posee, reservation: estReservation },
+    });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -781,12 +978,44 @@ export async function creerAppareil(input: {
 }
 
 /** État manuel d'une unité (Maintenance / Perdu / Réformé / Au cabinet). */
+/** Les états physiques d'une unité. Source unique : la table de tons de `labels.ts`. */
+const ETATS_UNITE = Object.keys(ETAT_APPAREIL_UNITE);
+/** Ceux qui sortent l'unité du circuit : plus aucun sélecteur ne la propose. */
+const ETATS_HORS_SERVICE = ["Maintenance", "Perdu", "Réformé"];
+
 export async function setEtatAppareil(appareilId: string, etat: string): Promise<ActionResult> {
   try {
     const session = await getSession();
     if (!can(session, "examens")) return { ok: false, error: "Accès refusé" };
+
+    // Liste blanche. Une valeur libre ferait créer l'option par Notion, et tout le code
+    // traite « ni Au cabinet ni Dehors » comme hors service : l'unité disparaîtrait de
+    // TOUS les sélecteurs, définitivement, sans le moindre message. Le garde-fou existant
+    // est côté client (`disabled`) — or une server action se joint en POST direct.
+    if (!ETATS_UNITE.includes(etat)) return { ok: false, error: `État inconnu : ${etat}` };
+
+    // Mettre hors service une unité qui porte un prêt ouvert ou une réservation à venir
+    // ferait échouer l'activation EN SILENCE (activerReservationsDues saute le hors
+    // service) : le patient se présente, l'appareil n'est pas là, personne n'a été prévenu.
+    // On refuse et on dit quoi faire.
+    if (ETATS_HORS_SERVICE.includes(etat)) {
+      const { data: engages } = await supabaseAdmin()
+        .from("examens")
+        .select("notion_id")
+        .contains("appareil", [appareilId])
+        .is("restitution_effective", null)
+        .limit(1);
+      if (engages && engages.length > 0) {
+        return {
+          ok: false,
+          error: "Unité engagée : un prêt ou une réservation est en cours. Clôturez-le ou déplacez-le d'abord.",
+        };
+      }
+    }
+
     await notionUpdate(appareilId, { "État": P.select(etat) });
     await supabaseAdmin().from("appareils").update({ etat }).eq("notion_id", appareilId);
+    await logAudit(session, { action: "status", area: "examens", targetId: appareilId, detail: { etat } });
     refresh();
     return { ok: true };
   } catch (e) {
@@ -1116,6 +1345,7 @@ export async function creerPerfusion(input: {
   bilan_bio?: string | null;
   honoraire_ipa?: number | null;
   forfait?: number | null; // montant facturé au patient (350-400 €)
+  praticien?: string | null; // qui a fait la séance → à qui revient la part
 }): Promise<ActionResult> {
   try {
     const session = await getSession();
@@ -1134,6 +1364,7 @@ export async function creerPerfusion(input: {
     if (input.duree) props["Durée"] = P.text(input.duree);
     if (input.bilan_bio) props["Bilan bio"] = P.select(input.bilan_bio);
     if (input.honoraire_ipa != null) props["Honoraire IPA"] = P.number(input.honoraire_ipa);
+    if (input.praticien) props["Praticien"] = P.relation([input.praticien]);
 
     const perfusionId = await notionCreate("perfusions", props);
     await admin.from("perfusions").insert({
@@ -1145,6 +1376,7 @@ export async function creerPerfusion(input: {
       bilan_bio: input.bilan_bio ?? null,
       honoraire_ipa: input.honoraire_ipa ?? null,
       patient: [input.patient],
+      praticien: input.praticien ? [input.praticien] : null,
       created_time: new Date().toISOString(),
     });
 
@@ -1161,6 +1393,8 @@ export async function creerPerfusion(input: {
         Perfusion: P.relation([perfusionId]),
       };
       if (input.honoraire_ipa != null) payProps["Notes"] = P.text(`Hono IPA : ${input.honoraire_ipa} €`);
+      // Le praticien voyage jusqu'au paiement : c'est là que Finances regarde qui a soigné.
+      if (input.praticien) payProps["Responsable"] = P.relation([input.praticien]);
       const payId = await notionCreate("paiements", payProps);
       await admin.from("paiements").insert({
         notion_id: payId,
@@ -1172,6 +1406,7 @@ export async function creerPerfusion(input: {
         notes: input.honoraire_ipa != null ? `Hono IPA : ${input.honoraire_ipa} €` : null,
         patient: [input.patient],
         perfusion: [perfusionId],
+        responsable: input.praticien ? [input.praticien] : null,
         created_time: new Date().toISOString(),
       });
       // lien retour Perfusion → Paiement
@@ -1196,6 +1431,7 @@ export async function majPerfusion(
     bilan_bio?: string | null;
     honoraire_ipa?: number | null;
     notes?: string | null;
+    praticien?: string | null;
   }
 ): Promise<ActionResult> {
   try {
@@ -1208,6 +1444,7 @@ export async function majPerfusion(
       "Bilan bio": P.select(input.bilan_bio ?? null),
       "Honoraire IPA": P.number(input.honoraire_ipa ?? null),
       "Notes": P.text(input.notes ?? null),
+      "Praticien": P.relation(input.praticien ? [input.praticien] : []),
     });
     await supabaseAdmin()
       .from("perfusions")
@@ -1218,6 +1455,7 @@ export async function majPerfusion(
         bilan_bio: input.bilan_bio || null,
         honoraire_ipa: input.honoraire_ipa ?? null,
         notes: input.notes || null,
+        praticien: input.praticien ? [input.praticien] : null,
       })
       .eq("notion_id", perfusionId);
     await logAudit(session, { action: "update", area: "perfusions", targetId: perfusionId });
@@ -1598,6 +1836,264 @@ export async function supprimerHoraire(id: string, wholeGroup = false): Promise<
     await markWeeksDirty(admin, row.secretaire_notion_id, dates);
     await logAudit(session, { action: "delete", area: "planning", targetId: id, detail: { wholeGroup } });
     refreshHoraires();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ============================================================
+// Messagerie équipe ↔ admin (module « messages »)
+//
+// Demandé en réunion : un canal pour les remarques et les choses à savoir —
+// PAS des tâches. Une conversation par membre, avec l'admin uniquement.
+//
+// Supabase = source de vérité (écriture immédiate), Notion = miroir rempli par le
+// drainer (cf. messages-sync.ts). Chaque écriture laisse le message « pending » et
+// marque la page Notion « dirty ».
+// ============================================================
+
+function refreshMessages() {
+  revalidatePath("/messages", "layout");
+  revalidatePath("/", "layout"); // pastille du menu
+}
+
+/**
+ * Envoie un message. Le membre écrit dans SA conversation ; l'admin répond dans
+ * celle d'un membre (`destinataire`).
+ *
+ * Volontairement une seule action : Next 16 sérialise les server actions d'un même
+ * client, donc « envoyer » puis « marquer lu » en parallèle ne se recouvriraient pas.
+ * On fait donc tout ici.
+ */
+export async function envoyerMessage(input: {
+  corps: string;
+  /** personnel.notion_id du membre dont c'est la conversation. Admin uniquement. */
+  destinataire?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "messages")) return { ok: false, error: "Accès refusé" };
+    const corps = input.corps.trim();
+    if (!corps) return { ok: false, error: "Message vide" };
+
+    const estAdmin = session.member.is_owner || session.member.role === "admin";
+    // Un membre écrit toujours dans SA conversation : le destinataire fourni par le
+    // client est ignoré pour lui — sinon n'importe qui pourrait poster chez un autre
+    // en appelant l'action directement.
+    const personnelId = estAdmin ? input.destinataire ?? null : session.member.personnel_notion_id;
+    if (!personnelId) {
+      return {
+        ok: false,
+        error: estAdmin
+          ? "Destinataire requis"
+          : "Votre compte n'est relié à aucune fiche Personnel : impossible d'ouvrir une conversation.",
+      };
+    }
+
+    const admin = supabaseAdmin();
+    const now = new Date().toISOString();
+
+    // Conversation créée à la première prise de parole (unique sur personnel_notion_id).
+    const { data: conv, error: convErr } = await admin
+      .from("conversations")
+      .upsert(
+        {
+          personnel_notion_id: personnelId,
+          dernier_message_at: now,
+          // L'auteur a forcément lu ce qu'il vient d'écrire.
+          ...(estAdmin ? { lu_admin_at: now } : { lu_membre_at: now }),
+        },
+        { onConflict: "personnel_notion_id" }
+      )
+      .select("id")
+      .single();
+    if (convErr || !conv) return { ok: false, error: convErr?.message ?? "Conversation introuvable" };
+
+    const { error: msgErr } = await admin.from("messages").insert({
+      conversation_id: conv.id,
+      auteur_member_id: session.member.id,
+      auteur_personnel_id: session.member.personnel_notion_id,
+      est_admin: estAdmin,
+      corps,
+      sync_state: "pending",
+    });
+    if (msgErr) return { ok: false, error: msgErr.message };
+
+    await admin
+      .from("messages_notion_pages")
+      .upsert({ personnel_notion_id: personnelId, dirty: true, updated_at: now }, { onConflict: "personnel_notion_id" });
+
+    await logAudit(session, { action: "send", area: "messages", targetId: conv.id });
+    refreshMessages();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Pose le filigrane de lecture du lecteur courant (fait disparaître la pastille). */
+export async function marquerConversationLue(conversationId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "messages")) return { ok: false, error: "Accès refusé" };
+    const admin = supabaseAdmin();
+
+    const { data: conv } = await admin
+      .from("conversations")
+      .select("id, personnel_notion_id")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (!conv) return { ok: false, error: "Conversation introuvable" };
+
+    const estAdmin = session.member.is_owner || session.member.role === "admin";
+    // Un membre ne peut marquer lue QUE la sienne (l'action est joignable en direct).
+    if (!estAdmin && conv.personnel_notion_id !== session.member.personnel_notion_id) {
+      return { ok: false, error: "Accès refusé" };
+    }
+
+    const now = new Date().toISOString();
+    await admin
+      .from("conversations")
+      .update(estAdmin ? { lu_admin_at: now } : { lu_membre_at: now })
+      .eq("id", conversationId);
+
+    refreshMessages();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ============================================================
+// Checklist de passation (matin / soir)
+// ============================================================
+
+function refreshChecklist() {
+  revalidatePath("/secretariat", "layout");
+}
+
+/**
+ * Coche ou décoche un item POUR AUJOURD'HUI.
+ *
+ * La coche est datée (clé primaire (item, jour)) : c'est ce qui fait la « remise à zéro
+ * quotidienne » du PRD, sans tâche planifiée à minuit ni purge — demain, la requête du jour
+ * ne voit simplement plus les coches d'hier, et l'historique reste consultable.
+ *
+ * `fait_par` retient qui a coché : le PRD veut que l'administration voie l'avancement.
+ */
+export async function cocherChecklist(itemId: string, coche: boolean): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "checklist")) return { ok: false, error: "Accès refusé" };
+
+    const admin = supabaseAdmin();
+    const jour = new Date().toISOString().slice(0, 10);
+
+    if (coche) {
+      // Idempotent : re-cocher le même jour ne crée pas de doublon (PK (item_id, jour)).
+      const { error } = await admin
+        .from("checklist_ticks")
+        .upsert(
+          { item_id: itemId, jour, fait_par: session.member.personnel_notion_id, at: new Date().toISOString() },
+          { onConflict: "item_id,jour" }
+        );
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await admin.from("checklist_ticks").delete().eq("item_id", itemId).eq("jour", jour);
+      if (error) return { ok: false, error: error.message };
+    }
+
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Ajoute un item (administration). */
+export async function creerChecklistItem(input: { libelle: string; moment: "Matin" | "Soir" }): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") return { ok: false, error: "Accès refusé" };
+    const libelle = input.libelle.trim();
+    if (!libelle) return { ok: false, error: "Libellé requis" };
+    if (input.moment !== "Matin" && input.moment !== "Soir") return { ok: false, error: "Moment invalide" };
+
+    const admin = supabaseAdmin();
+    // Ajouté en fin de liste de son moment.
+    const { data: dernier } = await admin
+      .from("checklist_items")
+      .select("ordre")
+      .eq("moment", input.moment)
+      .order("ordre", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: cree, error } = await admin
+      .from("checklist_items")
+      .insert({ libelle, moment: input.moment, ordre: (dernier?.ordre ?? 0) + 1 })
+      .select("id")
+      .single();
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, { action: "create", area: "checklist", targetId: cree.id, targetLabel: libelle });
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Renomme / déplace un item (administration). */
+export async function majChecklistItem(
+  itemId: string,
+  input: { libelle?: string; moment?: "Matin" | "Soir" }
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") return { ok: false, error: "Accès refusé" };
+
+    const patch: Record<string, unknown> = {};
+    if (input.libelle !== undefined) {
+      const libelle = input.libelle.trim();
+      if (!libelle) return { ok: false, error: "Libellé requis" };
+      patch.libelle = libelle;
+    }
+    if (input.moment !== undefined) {
+      if (input.moment !== "Matin" && input.moment !== "Soir") return { ok: false, error: "Moment invalide" };
+      patch.moment = input.moment;
+    }
+    if (Object.keys(patch).length === 0) return { ok: true };
+
+    const { error } = await supabaseAdmin().from("checklist_items").update(patch).eq("id", itemId);
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, { action: "update", area: "checklist", targetId: itemId, detail: patch });
+    refreshChecklist();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Retire un item de la liste (administration).
+ *
+ * `actif = false` plutôt qu'un DELETE : les coches sont liées en cascade, les supprimer
+ * effacerait l'historique de passation des jours passés. L'item disparaît de la carte,
+ * le passé reste intact.
+ */
+export async function retirerChecklistItem(itemId: string): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!session.member.is_owner && session.member.role !== "admin") return { ok: false, error: "Accès refusé" };
+
+    const { error } = await supabaseAdmin().from("checklist_items").update({ actif: false }).eq("id", itemId);
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, { action: "delete", area: "checklist", targetId: itemId });
+    refreshChecklist();
     return { ok: true };
   } catch (e) {
     return fail(e);

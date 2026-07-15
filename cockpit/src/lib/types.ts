@@ -58,11 +58,13 @@ export type Tache = {
   created_time: string | null;
   titre: string | null;
   statut: string | null;
-  calendrier: string | null;
-  recurrence: string | null;
+  calendrier: string | null;          // Ponctuelle | Récurrente
+  recurrence: string | null;          // libellé Notion : Quotidienne | Jours ouvrés | …
+  recurring_group_id: string | null;  // relie les instances d'une série récurrente
   echeance: string | null;
   priorite: string | null;
-  domaine: string | null;
+  domaine: string | null;             // Clinique | Professionnel | Personnel | Projets (porte la RLS)
+  categorie: string | null;           // Administration | Patient | Mobilier | Paiement
   note_cloture: string | null;
   note: string | null;
   responsable: string[];
@@ -125,6 +127,10 @@ export type Paiement = {
   notes: string | null;
   patient: string[];
   responsable: string[];
+  /** La séance de perfusion facturée par cette ligne, s'il y en a une. */
+  perfusion: string[] | null;
+  /** L'examen facturé par cette ligne (pénalité de retard, etc.). */
+  examen: string[] | null;
 };
 
 export type Perfusion = {
@@ -137,6 +143,8 @@ export type Perfusion = {
   bilan_bio: string | null;
   notes: string | null;
   patient: string[];
+  /** Qui a fait la séance — celui à qui la part revient. */
+  praticien: string[] | null;
 };
 
 export type Article = {
@@ -198,6 +206,48 @@ export type Horaire = {
   sync_state: string;           // pending | synced
   created_at: string | null;
   updated_at: string | null;
+};
+
+/**
+ * Messagerie équipe ↔ admin (module Messages).
+ * Une conversation par membre — « seulement avec l'admin » (réunion juil. 2026).
+ */
+export type Conversation = {
+  id: string;
+  personnel_notion_id: string;
+  dernier_message_at: string;
+  lu_admin_at: string | null;
+  lu_membre_at: string | null;
+  created_at: string | null;
+};
+
+export type Message = {
+  id: string;
+  conversation_id: string;
+  auteur_member_id: string;
+  auteur_personnel_id: string | null;
+  est_admin: boolean;
+  corps: string;
+  sync_state: string;
+  created_at: string | null;
+};
+
+/** Un item de la checklist de passation. Défini par l'administration, coché chaque jour. */
+export type ChecklistItem = {
+  id: string;
+  libelle: string;
+  moment: "Matin" | "Soir";
+  ordre: number;
+  actif: boolean;
+  created_at: string | null;
+};
+
+/** Une coche : datée, donc « remise à zéro » chaque jour sans rien purger. */
+export type ChecklistTick = {
+  item_id: string;
+  jour: string;
+  fait_par: string | null;
+  at: string | null;
 };
 
 export type PersonnelRow = {

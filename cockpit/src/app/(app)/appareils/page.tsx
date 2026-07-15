@@ -8,8 +8,9 @@ import { Card, CardHeader, StatCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, THead, TBody, Tr, Empty } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/badge";
-import { ETAT_APPAREIL_UNITE, TYPES_APPAREIL } from "@/lib/labels";
+import { ETAT_APPAREIL_UNITE, TYPES_APPAREIL, STATUT_APPAREIL } from "@/lib/labels";
 import { formatDate, formatEuro, EMPTY } from "@/lib/utils";
+import { jour, joursDeRetard, statutRetour, retardBloqueUneReservation, pretDeExamen, type Pret } from "@/lib/appareils";
 import {
   EtatAppareilSelect,
   NouvelAppareilButton,
@@ -17,7 +18,7 @@ import {
   AppareilRenduButton,
   FacturerPenaliteButton,
 } from "@/components/interactive";
-import { Watch } from "lucide-react";
+import { TriangleAlert, Watch } from "lucide-react";
 import type { Appareil, Examen } from "@/lib/types";
 
 /**
@@ -35,10 +36,13 @@ export default async function AppareilsPage() {
   const supa = await supabaseServer();
   const [unites, examens, patientsIndex, personnel, fees, penalitesExistantes] = await Promise.all([
     supa.from("appareils").select("*").order("ref_appareil").then((r) => (r.data ?? []) as Appareil[]),
+    // Prêts OUVERTS = pas de restitution effective. Inclut les réservations à venir.
+    // (On ne filtre plus sur « Statut appareil » : cette valeur est désormais dérivée,
+    // et rien ne l'écrivait de façon fiable — cf. src/lib/appareils.ts.)
     supa
       .from("examens")
       .select("*")
-      .in("statut_appareil", ["Remis", "Bientôt dû", "En retard"])
+      .is("restitution_effective", null)
       .then((r) => (r.data ?? []) as Examen[]),
     getPatientsIndex(),
     getPersonnel(),
@@ -51,13 +55,41 @@ export default async function AppareilsPage() {
       : Promise.resolve(new Set<string>()),
   ]);
 
-  const examByUnit = new Map<string, Examen>();
-  for (const e of examens) for (const uniteId of e.appareil ?? []) examByUnit.set(uniteId, e);
+  const today = new Date().toISOString().slice(0, 10);
 
-  const now = Date.now();
+  // Prêts par unité : une unité peut avoir un prêt en cours ET des réservations à venir.
+  const pretsByUnit = new Map<string, Pret[]>();
+  for (const e of examens) {
+    for (const uniteId of e.appareil ?? []) {
+      pretsByUnit.set(uniteId, [...(pretsByUnit.get(uniteId) ?? []), pretDeExamen(e, today)]);
+    }
+  }
+  /**
+   * Le prêt réellement en cours (pose atteinte), par opposition à une réservation.
+   *
+   * Deux prêts ouverts peuvent se chevaucher quand le précédent n'a jamais été marqué
+   * rendu. C'est alors le PLUS ANCIEN qui tient physiquement le boîtier, et lui seul :
+   * sans tri, la Map gardait le dernier venu (la requête n'ordonne rien), et la ligne
+   * nommait le mauvais patient, la pénalité retombait à 0, l'alerte de retard (décision 5)
+   * ne se déclenchait jamais — dans le cas précis pour lequel elle existe — et « Marquer
+   * rendu » clôturait la mauvaise ligne, laissant l'ancienne bloquer l'unité à jamais.
+   */
+  const enCoursByUnit = new Map<string, Examen>();
+  const commences = examens
+    .filter((e) => (jour(e.date_pose) ?? today) <= today)
+    .sort((a, b) => (jour(a.date_pose) ?? today).localeCompare(jour(b.date_pose) ?? today));
+  for (const e of commences) {
+    for (const uniteId of e.appareil ?? []) {
+      if (!enCoursByUnit.has(uniteId)) enCoursByUnit.set(uniteId, e); // le plus ancien gagne
+    }
+  }
+
   const penalty = (e: Examen | undefined): { days: number; amount: number } | null => {
     if (!e?.restitution_prevue) return null;
-    const days = Math.floor((now - new Date(e.restitution_prevue).getTime()) / 86_400_000);
+    const days = joursDeRetard(
+      { id: e.notion_id, debut: jour(e.date_pose) ?? today, retourPrevu: jour(e.restitution_prevue), retourEffectif: jour(e.restitution_effective) },
+      today
+    );
     if (days <= 0) return null;
     const isPgv = (e.type ?? "").includes("Polygraphie");
     const rate = fees.get(isPgv ? "late_fee_polygraphie" : "late_fee_holter") ?? (isPgv ? 100 : 150);
@@ -71,7 +103,15 @@ export default async function AppareilsPage() {
   const patientsList = [...patientsIndex.values()]
     .map((p) => ({ notion_id: p.notion_id, nom: p.nom }))
     .sort((a, b) => (a.nom ?? "").localeCompare(b.nom ?? ""));
-  const libres = unites.map((u) => ({ notion_id: u.notion_id, ref_appareil: u.ref_appareil, type: u.type, etat: u.etat }));
+  // Chaque unité part avec ses prêts : le dialogue juge la disponibilité à la DATE
+  // demandée, et non sur l'état courant — c'est ce qui permet de réserver à l'avance.
+  const libres = unites.map((u) => ({
+    notion_id: u.notion_id,
+    ref_appareil: u.ref_appareil,
+    type: u.type,
+    etat: u.etat,
+    prets: pretsByUnit.get(u.notion_id) ?? [],
+  }));
 
   return (
     <div className="space-y-4">
@@ -97,7 +137,7 @@ export default async function AppareilsPage() {
           const ofType = unites.filter((u) => u.type === t);
           const cabinet = ofType.filter((u) => u.etat === "Au cabinet").length;
           const dehors = ofType.filter((u) => u.etat === "Dehors");
-          const late = dehors.filter((u) => penalty(examByUnit.get(u.notion_id))).length;
+          const late = dehors.filter((u) => penalty(enCoursByUnit.get(u.notion_id))).length;
           return (
             <StatCard
               key={t}
@@ -121,19 +161,44 @@ export default async function AppareilsPage() {
             </THead>
             <TBody>
               {unites.map((u) => {
-                const exam = u.etat === "Dehors" ? examByUnit.get(u.notion_id) : undefined;
+                const exam = enCoursByUnit.get(u.notion_id);
                 const pen = penalty(exam);
                 const dejaFacturee = exam ? penalitesExistantes.has(exam.notion_id) : false;
+                const prets = pretsByUnit.get(u.notion_id) ?? [];
+                // Réservations = prêts ouverts dont la pose est à venir.
+                const reservations = prets
+                  .filter((p) => p.debut > today)
+                  .sort((a, b) => a.debut.localeCompare(b.debut));
+                // Un retard qui fait attendre quelqu'un : c'est ce qu'il faut voir en premier.
+                const pretEnCours = exam
+                  ? prets.find((p) => p.id === exam.notion_id)
+                  : undefined;
+                const bloqueUnAutre = pretEnCours
+                  ? retardBloqueUneReservation(pretEnCours, prets, today)
+                  : false;
                 return (
                   <Tr key={u.notion_id}>
                     <td className="font-medium">{u.ref_appareil ?? EMPTY}</td>
                     <td className="text-xs">{u.type ?? EMPTY}</td>
                     <td className="tabular-nums text-xs text-muted">{u.numero ?? EMPTY}</td>
                     <td>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge value={u.etat} map={ETAT_APPAREIL_UNITE} />
                         <EtatAppareilSelect appareilId={u.notion_id} value={u.etat} />
+                        {pretEnCours && (
+                          <StatusBadge value={statutRetour(pretEnCours, today)} map={STATUT_APPAREIL} />
+                        )}
                       </div>
+                      {reservations.length > 0 && (
+                        <div className="mt-1 text-[11px] text-muted">
+                          {tr.appareils.reservedFrom(formatDate(reservations[0].debut, lang), reservations.length)}
+                        </div>
+                      )}
+                      {bloqueUnAutre && (
+                        <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-danger">
+                          <TriangleAlert className="size-3" /> {tr.appareils.blockingReservation}
+                        </div>
+                      )}
                     </td>
                     <td>{exam ? patientName(exam.patient, patientsIndex) : EMPTY}</td>
                     <td className="whitespace-nowrap">{exam ? formatDate(exam.restitution_prevue, lang) : EMPTY}</td>

@@ -23,6 +23,30 @@ out/
 Meeting started*.docx
 meeting_transcript.txt
 
+# Internal planning docs — stay local. Only cockpit/ is published.
+#
+# Ce dépôt est PUBLIC. MASTER-PLAN-V3.md s'était retrouvé suivi par mégarde et serait
+# parti dans un push ; il en a été retiré, historique compris, avant publication. Ces
+# lignes empêchent que ça recommence — le garde-fou ne tenait qu'à la vigilance de
+# chacun au moment du `git add`.
+#
+# NB : PLAN.md et MEETING-COMPARISON.md ont été suivis AVANT cette règle et sont déjà
+# publics ; les ignorer ici ne les retirerait pas (un .gitignore ne dé-suit rien).
+MASTER-PLAN*.md
+PROCESS-AND-GAPS.md
+ASSISTANT-SETUP.md
+FLOW-COMPARISON.md
+HOW-THE-SYSTEM-WORKS.md
+MANUAL-BROWSER-CHECKLIST.md
+PLAN-tasks-and-inventory.md
+SYSTEM-GUIDE-V2.md
+SYSTEM-TEST-REPORT.md
+prd.md
+
+# Dossiers sources contenant des données patient — jamais publiés.
+Dr. Amroui Notion Cabinate/
+Patient-Management-System-with-second-brain-main/
+
 # OS / editor
 .DS_Store
 Thumbs.db

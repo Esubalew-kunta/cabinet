@@ -8,7 +8,7 @@ import type { Session } from "@/lib/auth";
  */
 export type AuditAction =
   | "create" | "update" | "delete"
-  | "verify" | "assign" | "return" | "collect" | "penalty"
+  | "verify" | "assign" | "reserve" | "return" | "collect" | "penalty"
   | "stock_move" | "interpret" | "send" | "status" | "setting";
 
 export async function logAudit(

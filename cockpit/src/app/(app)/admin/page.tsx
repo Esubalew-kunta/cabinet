@@ -7,6 +7,7 @@ import { Card, CardHeader, CardBody, StatCard } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { SyncBanner } from "@/components/sync-banner";
 import { formatDate, formatEuro } from "@/lib/utils";
+import { statutRetour, pretDeExamen } from "@/lib/appareils";
 import { tv, type Lang } from "@/lib/i18n/dict";
 import { ParametreValeur } from "@/components/interactive";
 import { CreditCard, FileText, FolderOpen, ListChecks, RefreshCw, Settings2, SlidersHorizontal, Users, Watch } from "lucide-react";
@@ -55,7 +56,10 @@ export default async function AdminPage() {
   const [patients, dossiers, examens, paiements, taches, syncRuns, rapports, parametres, stock] = await Promise.all([
     supa.from("patients").select("notion_id, statut, probleme_principal").then((r) => r.data ?? []),
     supa.from("dossiers").select("notion_id, statut_intake").then((r) => r.data ?? []),
-    supa.from("examens").select("notion_id, statut_appareil").then((r) => r.data ?? []),
+    supa
+      .from("examens")
+      .select("notion_id, statut_appareil, date_pose, restitution_prevue, restitution_effective")
+      .then((r) => r.data ?? []),
     supa.from("paiements").select("notion_id, statut_paiement, montant_du, montant_paye").then((r) => r.data ?? []),
     supa.from("taches").select("notion_id, statut, responsable").neq("statut", "Terminé").then((r) => r.data ?? []),
     supa.from("sync_runs").select("*").order("started_at", { ascending: false }).limit(5).then((r) => (r.data ?? []) as SyncRun[]),
@@ -68,7 +72,15 @@ export default async function AdminPage() {
 
   const patientsActifs = patients.filter((p) => p.statut === "Actif").length;
   const dossiersEnAttente = dossiers.filter((d) => !["Terminé"].includes(d.statut_intake ?? "")).length;
-  const appareilsEnRetard = examens.filter((e) => e.statut_appareil === "En retard").length;
+  // Compté à partir des DATES, plus du champ « Statut appareil ».
+  // Ce KPI comptait `statut_appareil === "En retard"` — une valeur que rien n'écrit
+  // (le seul rédacteur, un workflow n8n, est désactivé). Il affichait donc 0 en
+  // permanence : pire qu'inutile, il affirmait à l'administration qu'aucun appareil
+  // n'était en retard pendant que certains l'étaient.
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const appareilsEnRetard = examens.filter(
+    (e) => statutRetour(pretDeExamen(e, aujourdhui), aujourdhui) === "En retard"
+  ).length;
   const totalEncaisse = paiements.reduce((s, p) => s + Number(p.montant_paye ?? 0), 0);
 
   const count = <T,>(rows: T[], key: (r: T) => string | null | undefined) => {
@@ -179,7 +191,9 @@ export default async function AdminPage() {
         </Card>
         <Card>
           <CardHeader icon={<Watch />} title={tr.admin.devicesByStatus} />
-          <CardBody><CountList counts={count(examens, (e) => e.statut_appareil)} lang={lang} emptyLabel={tr.admin.noData} /></CardBody>
+          {/* Dérivé, comme le KPI juste au-dessus : compter la colonne stockée rendait ce
+              graphe incapable d'afficher un seul « En retard ». */}
+          <CardBody><CountList counts={count(examens, (e) => statutRetour(pretDeExamen(e, aujourdhui), aujourdhui))} lang={lang} emptyLabel={tr.admin.noData} /></CardBody>
         </Card>
         <Card>
           <CardHeader icon={<CreditCard />} title={tr.admin.paymentsByStatus} />

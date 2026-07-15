@@ -20,8 +20,10 @@ import {
   AppareilRenduButton,
 } from "@/components/interactive";
 import { tv } from "@/lib/i18n/dict";
+import { statutRetour, pretDeExamen } from "@/lib/appareils";
+import { ChecklistCard, type TickDuJour } from "./checklist";
 import { ArrowRight, CalendarClock, ClipboardList, CreditCard, Inbox, ListChecks, TriangleAlert, Watch } from "lucide-react";
-import type { Dossier, Tache, Examen, Paiement } from "@/lib/types";
+import type { Dossier, Tache, Examen, Paiement, ChecklistItem } from "@/lib/types";
 
 export default async function SecretariatPage() {
   const session = await getSession();
@@ -30,9 +32,12 @@ export default async function SecretariatPage() {
 
   const supa = await supabaseServer();
   const today = new Date().toISOString();
+  const aujourdhui = today.slice(0, 10);
 
-  const [aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex, ownerId] =
-    await Promise.all([
+  const [
+    aTraiter, rdvAVenir, infosManquantes, taches, appareils, paiements, personnel, patientsIndex, ownerId,
+    checklistItems, checklistTicks,
+  ] = await Promise.all([
       supa
         .from("dossiers")
         .select("*")
@@ -63,10 +68,17 @@ export default async function SecretariatPage() {
         .order("echeance", { ascending: true, nullsFirst: false })
         .limit(15)
         .then((r) => (r.data ?? []) as Tache[]),
+      // « Appareils à rendre » = ceux qui sont DEHORS : un retour prévu, pas encore rendu.
+      // On filtrait sur `statut_appareil in (Remis, Bientôt dû, En retard)` — or rien
+      // n'écrit les deux derniers, et une réservation porte « Disponible » : la table
+      // manquait des lignes et n'a jamais pu afficher un retard. Les dates, elles, sont
+      // fiables ; le statut est dérivé à l'affichage.
       supa
         .from("examens")
         .select("*")
-        .in("statut_appareil", ["Remis", "Bientôt dû", "En retard"])
+        .is("restitution_effective", null)
+        .not("restitution_prevue", "is", null)
+        .lte("date_pose", today) // déjà posé : une réservation à venir n'est pas « à rendre »
         .order("restitution_prevue", { ascending: true })
         .limit(20)
         .then((r) => (r.data ?? []) as Examen[]),
@@ -80,9 +92,23 @@ export default async function SecretariatPage() {
       getPersonnel(),
       getPatientsIndex(),
       getOwnerPersonnelId(),
+      // Checklist de passation (PRD B.5.4). Les items actifs, et UNIQUEMENT les coches
+      // du jour : la « remise à zéro quotidienne » tient à ce filtre, pas à une purge.
+      supa
+        .from("checklist_items")
+        .select("*")
+        .eq("actif", true)
+        .order("ordre", { ascending: true })
+        .then((r) => (r.data ?? []) as ChecklistItem[]),
+      supa
+        .from("checklist_ticks")
+        .select("item_id, fait_par")
+        .eq("jour", aujourdhui)
+        .then((r) => (r.data ?? []) as TickDuJour[]),
     ]);
 
   const medecins = personnel.filter(isSoignant);
+  const nomsPersonnel = Object.fromEntries(personnel.map((p) => [p.notion_id, p.nom ?? "?"]));
   const problemes = [
     "Palpitations ou arythmie suspectée", "FA suivi", "Revue Holter", "Suivi hypertension",
     "Cardiologie préventive", "Syncope ou vertige", "Gêne thoracique non urgente", "Suivi post-ablation",
@@ -108,6 +134,14 @@ export default async function SecretariatPage() {
             <NouvelleTacheButton personnel={personnel.filter((p) => p.actif)} />
           </>
         }
+      />
+
+      {/* En tête de page : c'est la routine par laquelle la journée commence et finit. */}
+      <ChecklistCard
+        items={checklistItems}
+        ticks={checklistTicks}
+        noms={nomsPersonnel}
+        isAdmin={session.member.is_owner || session.member.role === "admin"}
       />
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -252,7 +286,7 @@ export default async function SecretariatPage() {
                     <td>{patientName(a.patient, patientsIndex)}</td>
                     <td className="text-xs">{a.type ?? EMPTY}</td>
                     <td className="whitespace-nowrap">{formatDate(a.restitution_prevue, lang)}</td>
-                    <td><StatusBadge value={a.statut_appareil} map={STATUT_APPAREIL} /></td>
+                    <td><StatusBadge value={statutRetour(pretDeExamen(a, aujourdhui), aujourdhui)} map={STATUT_APPAREIL} /></td>
                     <td><AppareilRenduButton examenId={a.notion_id} /></td>
                   </Tr>
                 ))}
