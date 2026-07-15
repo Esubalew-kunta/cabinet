@@ -459,8 +459,8 @@ function CoveragePanel({ dict, lang, view, days, blocks, secretaires, opStart, o
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label={dict.statStaffed(view)} value={dict.hoursShort(staffed)} />
-        <StatCard label={dict.statAvg} value={dict.hoursShort(avg)} />
-        <StatCard label={dict.statGaps} value={String(gapCount)} tone={gapCount > 0 ? "warning" : "success"} />
+        <StatCard label={dict.statAvg(view)} value={dict.hoursShort(avg)} />
+        <StatCard label={dict.statGaps(view)} value={String(gapCount)} tone={gapCount > 0 ? "warning" : "success"} />
       </div>
 
       <Card>
