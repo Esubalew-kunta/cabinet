@@ -118,7 +118,9 @@ export const ETAT_APPAREIL_UNITE: Record<string, Tone> = {
   "Réformé": tone("gray"),
 };
 
-export const TYPES_APPAREIL = ["Holter rythmique", "Holter tensionnel", "Polygraphie", "Moniteur ECG"] as const;
+// « Moniteur ECG » retiré en juil. 2026 (réunion) : unité archivée dans Notion et
+// option supprimée des deux selects « Type » (Appareils et Examens).
+export const TYPES_APPAREIL = ["Holter rythmique", "Holter tensionnel", "Polygraphie"] as const;
 
 /** Dossiers — cycle de vie du compte rendu */
 export const STATUT_CR: Record<string, Tone> = {
