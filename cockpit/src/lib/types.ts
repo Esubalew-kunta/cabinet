@@ -282,5 +282,37 @@ export type SyncRun = {
   error: string | null;
 };
 
+/**
+ * Un patient porteur de prothèse cardiaque suivi en télésurveillance (module Télécardiologie).
+ * Source initiale : l'Excel « Patients à facturer Dr AMRAOUI » ; ensuite vécu dans l'app.
+ */
+export type TelecardioPatient = {
+  id: string;
+  nom: string | null;
+  prenom: string | null;
+  sexe: string | null;
+  date_naissance: string | null;
+  date_implantation: string | null;
+  date_debut_hm: string | null;
+  num_serie: string | null;
+  num_pid: string | null;
+  type_appareil: string | null;
+  categorie: "prothese" | "holter";
+  commentaire: string | null;
+  actif: boolean;
+  ordre: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+/** Un statut de facturation mensuel : tri-état (Oui / Non / non renseigné). */
+export type TelecardioStatut = {
+  patient_id: string;
+  mois: string;                 // 'YYYY-MM-01'
+  facture: boolean | null;      // true = Oui, false = Non, null = non renseigné
+  updated_by: string | null;
+  updated_at: string | null;
+};
+
 export type PermLevel = "none" | "status" | "full";
 export type Permissions = Record<string, PermLevel>;

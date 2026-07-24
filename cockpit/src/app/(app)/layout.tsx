@@ -97,6 +97,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (can(session, "examens")) items.push({ href: "/examens", label: tr.nav.examens, icon: "examens" });
   if (can(session, "examens")) items.push({ href: "/appareils", label: tr.nav.appareils, icon: "appareils" });
   if (can(session, "stock")) items.push({ href: "/inventaire", label: tr.nav.inventaire, icon: "inventaire" });
+  if (can(session, "telecardiologie")) items.push({ href: "/telecardiologie", label: tr.nav.telecardiologie, icon: "telecardiologie" });
   if (can(session, "abonnes")) items.push({ href: "/abonnes", label: tr.nav.abonnes, icon: "abonnes" });
   if (can(session, "perfusions")) items.push({ href: "/perfusions", label: tr.nav.perfusions, icon: "perfusions" });
   if (can(session, "finances")) items.push({ href: "/finances", label: tr.nav.finances, icon: "finances" });

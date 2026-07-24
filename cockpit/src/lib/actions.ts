@@ -2099,3 +2099,202 @@ export async function retirerChecklistItem(itemId: string): Promise<ActionResult
     return fail(e);
   }
 }
+
+// ============================================================
+// Télécardiologie — suivi de facturation mensuel (Supabase seul)
+// ============================================================
+
+function refreshTelecardio() {
+  revalidatePath("/telecardiologie", "layout");
+}
+
+type TelecardioPatientInput = {
+  nom: string | null;
+  prenom: string | null;
+  sexe: string | null;
+  date_naissance: string | null;
+  date_implantation: string | null;
+  date_debut_hm: string | null;
+  num_serie: string | null;
+  num_pid: string | null;
+  type_appareil: string | null;
+  categorie: "prothese" | "holter";
+  commentaire: string | null;
+};
+
+/** Vide → null, pour ne pas écrire des chaînes vides en base. */
+function nn(v: string | null | undefined): string | null {
+  const s = (v ?? "").trim();
+  return s === "" ? null : s;
+}
+
+function cleanPatientInput(input: TelecardioPatientInput): TelecardioPatientInput {
+  return {
+    nom: nn(input.nom),
+    prenom: nn(input.prenom),
+    sexe: nn(input.sexe),
+    date_naissance: nn(input.date_naissance),
+    date_implantation: nn(input.date_implantation),
+    date_debut_hm: nn(input.date_debut_hm),
+    num_serie: nn(input.num_serie),
+    num_pid: nn(input.num_pid),
+    type_appareil: nn(input.type_appareil),
+    categorie: input.categorie === "holter" ? "holter" : "prothese",
+    commentaire: nn(input.commentaire),
+  };
+}
+
+/**
+ * La secrétaire coche une case (patient × mois) : Oui / Non / non renseigné.
+ *
+ * `null` (non renseigné) EFFACE la ligne plutôt que d'y stocker un null : une case
+ * jamais touchée n'existe pas non plus, la grille les traite pareil, et l'historique
+ * reste propre. `mois` est normalisé au 1er du mois.
+ */
+export async function setStatutTelecardio(
+  patientId: string,
+  mois: string,
+  facture: boolean | null,
+  patientLabel?: string | null
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "telecardiologie")) return { ok: false, error: "Accès refusé" };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(mois)) return { ok: false, error: "Mois invalide" };
+    const moisNorm = mois.slice(0, 7) + "-01";
+
+    const admin = supabaseAdmin();
+    if (facture === null) {
+      const { error } = await admin
+        .from("telecardio_statuts")
+        .delete()
+        .eq("patient_id", patientId)
+        .eq("mois", moisNorm);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await admin.from("telecardio_statuts").upsert(
+        {
+          patient_id: patientId,
+          mois: moisNorm,
+          facture,
+          updated_by: session.member.personnel_notion_id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "patient_id,mois" }
+      );
+      if (error) return { ok: false, error: error.message };
+    }
+
+    await logAudit(session, {
+      action: "status",
+      area: "telecardiologie",
+      targetId: patientId,
+      targetLabel: patientLabel ?? null,
+      detail: { mois: moisNorm, facture },
+    });
+    refreshTelecardio();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Ajoute un patient porteur (secrétariat). */
+export async function ajouterPatientTelecardio(input: TelecardioPatientInput): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "telecardiologie")) return { ok: false, error: "Accès refusé" };
+    const clean = cleanPatientInput(input);
+    if (!clean.nom) return { ok: false, error: "Le nom est requis" };
+
+    const admin = supabaseAdmin();
+    // Placer le nouveau patient en fin de liste (ordre max + 1).
+    const { data: last } = await admin
+      .from("telecardio_patients")
+      .select("ordre")
+      .order("ordre", { ascending: false })
+      .limit(1);
+    const ordre = ((last?.[0]?.ordre as number | undefined) ?? 0) + 1;
+
+    const { data, error } = await admin
+      .from("telecardio_patients")
+      .insert({ ...clean, ordre })
+      .select("id")
+      .single();
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, {
+      action: "create",
+      area: "telecardiologie",
+      targetId: data?.id,
+      targetLabel: [clean.nom, clean.prenom].filter(Boolean).join(" "),
+    });
+    refreshTelecardio();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Corrige les infos d'un patient (secrétariat). */
+export async function modifierPatientTelecardio(
+  patientId: string,
+  input: TelecardioPatientInput
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "telecardiologie")) return { ok: false, error: "Accès refusé" };
+    const clean = cleanPatientInput(input);
+    if (!clean.nom) return { ok: false, error: "Le nom est requis" };
+
+    const { error } = await supabaseAdmin()
+      .from("telecardio_patients")
+      .update(clean)
+      .eq("id", patientId);
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, {
+      action: "update",
+      area: "telecardiologie",
+      targetId: patientId,
+      targetLabel: [clean.nom, clean.prenom].filter(Boolean).join(" "),
+    });
+    refreshTelecardio();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Retire un patient de la liste (secrétariat).
+ * `actif = false` plutôt qu'un DELETE : les statuts sont liés en cascade, les
+ * supprimer effacerait l'historique de facturation. Le patient disparaît de la
+ * grille, le passé reste intact.
+ */
+export async function retirerPatientTelecardio(
+  patientId: string,
+  patientLabel?: string | null
+): Promise<ActionResult> {
+  try {
+    const session = await getSession();
+    if (!can(session, "telecardiologie")) return { ok: false, error: "Accès refusé" };
+
+    const { error } = await supabaseAdmin()
+      .from("telecardio_patients")
+      .update({ actif: false })
+      .eq("id", patientId);
+    if (error) return { ok: false, error: error.message };
+
+    await logAudit(session, {
+      action: "delete",
+      area: "telecardiologie",
+      targetId: patientId,
+      targetLabel: patientLabel ?? null,
+    });
+    refreshTelecardio();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
